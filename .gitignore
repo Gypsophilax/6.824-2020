@@ -1,0 +1,12 @@
+pkg/
+api.key
+*-handin.tar.gz
+.idea
+/src/*.*/
+/src/mrtmp.*
+/src/824-mrinput-*.txt
+/src/main/diff.out
+/src/mapreduce/x.txt
+/src/pbservice/x.txt
+/src/kvpaxos/x.txt
+/src/*.so
