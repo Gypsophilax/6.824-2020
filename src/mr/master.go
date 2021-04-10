@@ -1,6 +1,10 @@
 package mr
 
-import "log"
+import (
+	"log"
+	"sync"
+	"time"
+)
 import "net"
 import "os"
 import "net/rpc"
@@ -8,8 +12,15 @@ import "net/http"
 
 type Master struct {
 	// Your definitions here.
-
+	nReduce  int
+	mapFiles []string
+	taskChan chan *MapTask
+	workers  []MRWorker
+	task     Tasker
 }
+
+var count = 0
+var countSync = sync.Mutex{}
 
 // Your code here -- RPC handlers for the worker to call.
 
@@ -21,6 +32,30 @@ type Master struct {
 func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
+}
+
+func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
+	countSync.Lock()
+	defer countSync.Unlock()
+	nWorker := MRWorker{id: count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
+	m.workers = append(m.workers, nWorker)
+	reply.Id = count
+	reply.Tasker = <-m.taskChan
+	m.task = reply.Tasker
+	count++
+	go func() {
+		time.Sleep(100000)
+		m.task.GetState()
+	}()
+	return nil
+}
+
+func (m *Master) init(files []string) {
+	m.taskChan = make(chan *MapTask, 10)
+	for i, file := range files {
+		mapTask := MapTask{Task{InFile: file, State: Idle, Number: i}}
+		m.taskChan <- &mapTask
+	}
 }
 
 //
@@ -59,7 +94,9 @@ func (m *Master) Done() bool {
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
-	// Your code here.
+	m.nReduce = nReduce
+
+	m.init(files)
 
 	m.server()
 	return &m

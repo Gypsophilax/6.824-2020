@@ -22,6 +22,14 @@ type ExampleReply struct {
 	Y int
 }
 
+type RegisterArgs struct {
+}
+
+type RegisterReply struct {
+	Tasker *MapTask // 任务
+	Id     int      // 任务号
+}
+
 // Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name

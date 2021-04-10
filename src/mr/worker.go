@@ -34,6 +34,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	// uncomment to send the Example RPC to the master.
 	// CallExample()
 	CallExample()
+	Register()
 
 }
 
@@ -58,6 +59,21 @@ func CallExample() {
 
 	// reply.Y should be 100.
 	fmt.Printf("reply.Y %v\n", reply.Y)
+}
+
+func Register() {
+
+	// declare an argument structure.
+	args := RegisterArgs{}
+
+	// declare a reply structure.
+	reply := RegisterReply{}
+
+	// send the RPC request, wait for the reply.
+	call("Master.Register", &args, &reply)
+	//  todo worker是否需要知道master为自己分配的id
+	reply.Tasker.DoTask()
+	// reply.Y should be 100.
 }
 
 //
