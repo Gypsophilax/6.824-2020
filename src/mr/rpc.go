@@ -23,6 +23,7 @@ type ExampleReply struct {
 }
 
 type RegisterArgs struct {
+	Id string // worker machine的唯一标识
 }
 
 type RegisterReply struct {

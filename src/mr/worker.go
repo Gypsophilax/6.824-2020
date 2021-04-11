@@ -64,7 +64,7 @@ func CallExample() {
 func Register() {
 
 	// declare an argument structure.
-	args := RegisterArgs{}
+	args := RegisterArgs{Id: "1"}
 
 	// declare a reply structure.
 	reply := RegisterReply{}
