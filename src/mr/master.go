@@ -1,8 +1,12 @@
 package mr
 
 import (
+	"../utils"
+	"encoding/gob"
 	"log"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 import "net"
 import "os"
@@ -11,16 +15,14 @@ import "net/http"
 
 type Master struct {
 	// Your definitions here.
-	nReduce  int
-	mapFiles []string
-	taskChan chan *MapTask
-	workers  *sync.Map //  worker machine 根据唯一id进行map 映射
-	task     Tasker
+	nReduce   int
+	mapFiles  []string
+	taskQueue *utils.Queue
+	workers   *sync.Map //  worker machine 根据唯一id进行map 映射
+	count     int32
 }
 
-var count = 0
-var countMutex = sync.Mutex{}
-
+var timer = time.NewTimer(time.Second * 3) //channel 的超时设置
 // Your code here -- RPC handlers for the worker to call.
 
 //
@@ -34,27 +36,28 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
-	countMutex.Lock()
-	defer countMutex.Unlock()
-	nWorker := MRWorker{id: count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
-	m.workers.Store(args.Id, nWorker)
-	if load, ok := m.workers.Load("1"); ok {
-		var mrworker = load.(MRWorker)
-		println(mrworker.id)
+
+	// 如果 MRWorker 不存在，就添加，如果存在的话就直接分配任务
+	if _, ok := m.workers.Load(args.Id); !ok {
+		count := atomic.AddInt32(&m.count, 1)
+		nWorker := MRWorker{id: count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
+		m.workers.Store(args.Id, nWorker)
+		reply.Id = count
+
 	}
-	reply.Id = count
-	reply.Tasker = <-m.taskChan
-	m.task = reply.Tasker
-	count++
+	noWait, _ := m.taskQueue.GetNoWait()
+	reply.WTasker = noWait.(*MapTask)
 	return nil
 }
 
 func (m *Master) init(files []string) {
-	m.taskChan = make(chan *MapTask, 10)
+	m.taskQueue = utils.New(0)
 	m.workers = new(sync.Map)
+	m.count = 0
+	gob.Register(&MapTask{})
 	for i, file := range files {
 		mapTask := MapTask{Task{InFile: file, State: Idle, Number: i}}
-		m.taskChan <- &mapTask
+		_ = m.taskQueue.PutNoWait(&mapTask)
 	}
 }
 

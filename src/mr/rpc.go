@@ -27,8 +27,8 @@ type RegisterArgs struct {
 }
 
 type RegisterReply struct {
-	Tasker *MapTask // 任务
-	Id     int      // 任务号
+	WTasker Tasker // 任务
+	Id      int32  // 任务号
 }
 
 // Add your RPC definitions here.

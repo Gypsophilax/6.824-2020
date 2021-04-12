@@ -1,7 +1,9 @@
 package mr
 
+import "container/list"
+
 type MRWorker struct {
 	task      *Task
-	taskQueue []Task
-	id        int
+	taskQueue list.List // linkedList
+	id        int32
 }

@@ -1,6 +1,9 @@
 package mr
 
-import "fmt"
+import (
+	"encoding/gob"
+	"fmt"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
@@ -28,7 +31,7 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-
+	gob.Register(&MapTask{})
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the master.
@@ -72,8 +75,9 @@ func Register() {
 	// send the RPC request, wait for the reply.
 	call("Master.Register", &args, &reply)
 	//  todo worker是否需要知道master为自己分配的id
-	reply.Tasker.DoTask()
 	// reply.Y should be 100.
+	reply.WTasker.DoTask()
+	println("end")
 }
 
 //
