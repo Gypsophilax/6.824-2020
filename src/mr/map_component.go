@@ -14,19 +14,23 @@ type MapTask struct {
 
 func (mt *MapTask) DoTask(w *MRWorker) error {
 	filename := mt.InFile
-	var intermediate []KeyValue
-	file, err := os.Open(filename)
+	var intermediate [][]KeyValue
+	inFile, err := os.Open(filename)
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)
 	}
-	content, err := ioutil.ReadAll(file)
+	content, err := ioutil.ReadAll(inFile)
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
 	}
-	_ = file.Close()
+	_ = inFile.Close()
 	kva := w.mapf(filename, string(content))
-	intermediate = append(intermediate, kva...)
+	for i := range kva {
+
+	}
 	// todo 创建临时文件，并根据 ihash 方法进行分组
+	// 生成临时文件 ioutil.TempFile()
+	// os.Rename()
 	return nil
 }
 func (mt *MapTask) ChangeState(m *Master, state State) error {
