@@ -23,12 +23,12 @@ type ExampleReply struct {
 }
 
 type RegisterArgs struct {
-	Id string // worker machine的唯一标识
+	Id int32 // worker machine的唯一标识 -1: 首次注册
 }
 
 type RegisterReply struct {
 	WTasker Tasker // 任务
-	Id      int32  // 任务号
+	Id      int32  // MRWorker 向 Master 注册的 Id
 }
 
 // Add your RPC definitions here.

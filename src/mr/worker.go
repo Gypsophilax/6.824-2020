@@ -1,8 +1,11 @@
 package mr
 
 import (
+	"../utils"
 	"encoding/gob"
 	"fmt"
+	"sync/atomic"
+	"time"
 )
 import "log"
 import "net/rpc"
@@ -14,6 +17,14 @@ import "hash/fnv"
 type KeyValue struct {
 	Key   string
 	Value string
+}
+
+type MRWorker struct {
+	task      *Task
+	taskQueue *utils.Queue // linkedList
+	id        int32
+	mapf      func(string, string) []KeyValue
+	reducef   func(string, []string) string
 }
 
 //
@@ -31,13 +42,18 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-	gob.Register(&MapTask{})
+
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the master.
-	// CallExample()
-	CallExample()
-	Register()
+	w := new(MRWorker)
+	w.init()
+	err := w.Register()
+	go w.doTasker()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
 
 }
 
@@ -64,20 +80,40 @@ func CallExample() {
 	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
-func Register() {
+// 初始化 MRWorker
+func (w *MRWorker) init() {
+	gob.Register(&MapTask{})
+	w.taskQueue = utils.New(0)
+	w.id = -1
+}
 
-	// declare an argument structure.
-	args := RegisterArgs{Id: "1"}
-
-	// declare a reply structure.
+// MRWorker 初次向 Master 注册，可能会返回 Tasker
+func (w *MRWorker) Register() error {
+	args := RegisterArgs{}
 	reply := RegisterReply{}
+	for atomic.LoadInt32(&w.id) < 0 {
+		if call("Master.Register", &args, &reply) {
+			atomic.CompareAndSwapInt32(&w.id, -1, reply.Id)
+		} else {
+			time.Sleep(time.Second)
+		}
 
-	// send the RPC request, wait for the reply.
-	call("Master.Register", &args, &reply)
-	//  todo worker是否需要知道master为自己分配的id
-	// reply.Y should be 100.
-	reply.WTasker.DoTask()
-	println("end")
+	}
+	//  如果有任务分配就放到 taskQueue 中
+	if reply.WTasker != nil {
+		return w.taskQueue.PutNoWait(reply.WTasker)
+	}
+	return nil
+}
+
+// 循环从队列中获取任务并完成任务
+func (w *MRWorker) doTasker() {
+	for true {
+		if task, err := w.taskQueue.GetNoWait(); err == nil {
+			tasker := task.(Tasker)
+			tasker.DoTask(w) // todo 如果 error != nil ，应该重试然后向master报告
+		}
+	}
 }
 
 //

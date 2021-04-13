@@ -2,9 +2,11 @@ package mr
 
 // worker 的状态
 const (
-	Idle     State = 0
-	Progress State = 1
-	Complete State = 2
+	Idle               State  = 0
+	Progress           State  = 1
+	Complete           State  = 2
+	Map_File_Prefix    string = "mr-"
+	Reduce_File_Prefix string = "mr-out-"
 )
 
 type State int
@@ -16,11 +18,7 @@ type Task struct {
 	OutFile []string // 应该输出的文件名
 }
 
-//func (task *Task) DoTask() {
-//	println("this method should be implemented by MapTask and ReduceTask")
-//}
-
 type Tasker interface {
-	DoTask()
-	GetState()
+	DoTask(w *MRWorker) error
+	ChangeState(m *Master, state State) error
 }
