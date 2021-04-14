@@ -24,3 +24,7 @@ func TestMakeMaster(t *testing.T) {
 
 	println(element.state)
 }
+func TestDefer(t *testing.T) {
+	defer println("1")
+	defer println("2")
+}

@@ -20,7 +20,6 @@ type KeyValue struct {
 }
 
 type MRWorker struct {
-	task      *Task
 	taskQueue *utils.Queue // linkedList
 	id        int32
 	mapf      func(string, string) []KeyValue
@@ -92,11 +91,11 @@ func (w *MRWorker) init(mapf func(string, string) []KeyValue,
 
 // MRWorker 初次向 Master 注册，可能会返回 Tasker
 func (w *MRWorker) Register() error {
-	args := RegisterArgs{Id: w.id}
+	args := RegisterArgs{WId: w.id}
 	reply := RegisterReply{}
-	for args.Id = atomic.LoadInt32(&w.id); args.Id < 0; args.Id = atomic.LoadInt32(&w.id) {
+	for args.WId = atomic.LoadInt32(&w.id); args.WId < 0; args.WId = atomic.LoadInt32(&w.id) {
 		if call("Master.Register", &args, &reply) {
-			atomic.CompareAndSwapInt32(&w.id, -1, reply.Id)
+			atomic.CompareAndSwapInt32(&w.id, -1, reply.WId)
 		} else {
 			time.Sleep(time.Second)
 		}

@@ -2,6 +2,7 @@ package mr
 
 import (
 	"../utils"
+	"container/list"
 	"encoding/gob"
 	"log"
 	"sync"
@@ -12,35 +13,52 @@ import "os"
 import "net/rpc"
 import "net/http"
 
+// TaskElement
 type Element struct {
+	MLock
 	file  string
 	state State // Map 的状态
 	id    int
 }
+type MLock struct {
+	lock sync.Mutex
+}
+
+func (l *MLock) Lock() {
+	l.lock.Lock()
+}
+
+func (l *MLock) UnLock() {
+	l.lock.Unlock()
+}
+
+// MapTaskElement
 type MapElement struct {
 	Element
-	reduceElement []ReduceElement
-	lock          sync.Mutex
+	reduceElement []*ReduceElement
 }
+
+// ReduceTaskElement
 type ReduceElement struct {
 	Element
 	mapElement *MapElement
-	lock       sync.Mutex
 }
 
-type WorkerElement struct {
-	task      *Task
-	taskQueue *utils.Queue // linkedList
-	id        int32
+type WorkerElement struct { // Master 维护的 MRWorker 数据
+	MLock
+	ownMapElements    *list.List // Master 为 MRWorker 分配的Element
+	ownReduceElements *list.List // Master 为 MRWorker 分配的Element
+	wState            WorkerState
+	id                int32
 }
 type Master struct {
 	// Your definitions here.
-	nReduce        int                    // Map 被划分成 nReduce 个 Reduce
-	mapElements    map[string]*MapElement // 处理的 FileName -> MapElement
-	reduceElements map[string]*ReduceElement
+	nReduce        int      // Map 被划分成 nReduce 个 Reduce
+	mapElements    sync.Map // 处理的 FileName -> MapElement
+	reduceElements sync.Map
 	taskQueue      *utils.Queue // Map 和 Reduce 的任务队列
 	workers        sync.Map     //  worker machine 根据唯一id进行map 映射
-	count          int32        // Master 为 WorkerElerment 分配的唯一标识
+	count          int32        // Master 为 WorkerElement 分配的唯一标识
 
 }
 
@@ -60,37 +78,49 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	var rErr error = nil
 	// 是否已经存在 该Id的  WorkerElement
-	if _, ok := m.workers.Load(args.Id); !ok && args.Id < 0 {
+	if _, ok := m.workers.Load(args.WId); !ok && args.WId < 0 {
 		count := atomic.AddInt32(&m.count, 1)
-		we := WorkerElement{id: count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
-		m.workers.Store(count, we)
-		reply.Id = count
+		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), On, count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
+		m.workers.Store(count, &we)
+		//args.WId = count
+		reply.WId = count
 
 	}
 	// 是否有已经存在的 Tasker 分配给 MRWorker
-	if noWait, err := m.taskQueue.GetNoWait(); err != utils.ErrEmptyQueue {
-		tasker := noWait.(Tasker)
-		// todo 改变对应 Element 的状态
-		rErr = tasker.ChangeState(m, Progress)
-		reply.WTasker = tasker
-
-	}
+	var tasker Tasker
+	rErr, tasker = m.getTask()
 	if rErr != nil {
 		log.Fatal(rErr)
 	}
-
+	if tasker != nil {
+		rErr = tasker.BindMRWorker(m, reply.WId)
+	}
 	return rErr
+}
+
+func (m *Master) getTask() (error, Tasker) {
+	task, err := m.taskQueue.GetNoWait()
+	if err != nil {
+		return err, nil
+	}
+	tasker := task.(Tasker)
+	//  改变对应 Element 的状态
+
+	if err = tasker.ChangeState(m, Progress); err != nil {
+		return err, nil
+	}
+	return nil, tasker
 }
 
 // 初始化 Master
 func (m *Master) init(files []string) {
 	m.taskQueue = utils.New(0)
 	m.count = -1
-	m.mapElements = make(map[string]*MapElement)
+	m.mapElements = sync.Map{}
 	gob.Register(&MapTask{})
 	for i, file := range files {
 		mapTask := MapTask{Task{InFile: file, State: Idle, Number: i}}
-		m.mapElements[file] = &MapElement{Element{file: file, state: Idle, id: i}, make([]ReduceElement, m.nReduce), sync.Mutex{}}
+		m.mapElements.Store(file, &MapElement{Element{MLock{sync.Mutex{}}, file, Idle, i}, make([]*ReduceElement, m.nReduce)})
 		_ = m.taskQueue.PutNoWait(&mapTask)
 	}
 }

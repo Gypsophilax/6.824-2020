@@ -2,14 +2,18 @@ package mr
 
 // worker 的状态
 const (
-	Idle               State  = 0
-	Progress           State  = 1
-	Complete           State  = 2
-	Map_File_Prefix    string = "mr-"
-	Reduce_File_Prefix string = "mr-out-"
+	Idle             State       = 0
+	Progress         State       = 1
+	Complete         State       = 2
+	MapFilePrefix    string      = "mr-"
+	ReduceFilePrefix string      = "mr-out-"
+	FileSuffix       string      = ".txt"
+	On               WorkerState = 0
+	Off              WorkerState = 1
 )
 
 type State int
+type WorkerState int
 
 type Task struct {
 	Number  int
@@ -22,6 +26,7 @@ type Tasker interface {
 	DoTask(w *MRWorker) error
 	ChangeState(m *Master, state State) error
 	BuildOutputFileNames() []string
+	BindMRWorker(m *Master, workerid int32) error
 }
 
 // for sorting by key.

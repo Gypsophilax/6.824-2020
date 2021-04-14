@@ -18,11 +18,13 @@ func (rt *ReduceTask) DoTask(w *MRWorker) error {
 }
 func (rt *ReduceTask) ChangeState(m *Master, state State) error {
 
-	if element := m.reduceElements[rt.InFile]; element != nil {
-		defer element.lock.Unlock()
-		element.lock.Lock()
-		element.state = state
+	if me, ok := m.reduceElements.Load(rt.InFile); ok {
+		me := me.(*MapElement)
+		me.Lock()
+		defer me.UnLock()
+		me.state = state
 		return nil
 	}
+	_ = m.taskQueue.PutNoWait(rt)
 	return errors.New(" error change " + rt.InFile + " 's state to " + strconv.Itoa(int(state)))
 }
