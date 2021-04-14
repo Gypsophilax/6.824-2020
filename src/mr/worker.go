@@ -47,9 +47,9 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the master.
 	w := new(MRWorker)
-	w.init()
+	w.init(mapf, reducef)
 	err := w.Register()
-	go w.doTasker()
+	w.doTasker()
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -81,17 +81,20 @@ func CallExample() {
 }
 
 // 初始化 MRWorker
-func (w *MRWorker) init() {
+func (w *MRWorker) init(mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string) {
 	gob.Register(&MapTask{})
 	w.taskQueue = utils.New(0)
 	w.id = -1
+	w.mapf = mapf
+	w.reducef = reducef
 }
 
 // MRWorker 初次向 Master 注册，可能会返回 Tasker
 func (w *MRWorker) Register() error {
-	args := RegisterArgs{}
+	args := RegisterArgs{Id: w.id}
 	reply := RegisterReply{}
-	for atomic.LoadInt32(&w.id) < 0 {
+	for args.Id = atomic.LoadInt32(&w.id); args.Id < 0; args.Id = atomic.LoadInt32(&w.id) {
 		if call("Master.Register", &args, &reply) {
 			atomic.CompareAndSwapInt32(&w.id, -1, reply.Id)
 		} else {
@@ -111,7 +114,12 @@ func (w *MRWorker) doTasker() {
 	for true {
 		if task, err := w.taskQueue.GetNoWait(); err == nil {
 			tasker := task.(Tasker)
-			tasker.DoTask(w) // todo 如果 error != nil ，应该重试然后向master报告
+			fmt.Print(tasker)
+			err = tasker.DoTask(w) // todo 如果 error != nil ，应该重试然后向master报告
+			if err != nil {
+				_ = fmt.Errorf("DoTasker %v", err)
+				break
+			}
 		}
 	}
 }

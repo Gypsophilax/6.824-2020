@@ -63,7 +63,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	if _, ok := m.workers.Load(args.Id); !ok && args.Id < 0 {
 		count := atomic.AddInt32(&m.count, 1)
 		we := WorkerElement{id: count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
-		m.workers.Store(args.Id, we)
+		m.workers.Store(count, we)
 		reply.Id = count
 
 	}
@@ -85,7 +85,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 // 初始化 Master
 func (m *Master) init(files []string) {
 	m.taskQueue = utils.New(0)
-	m.count = 0
+	m.count = -1
 	m.mapElements = make(map[string]*MapElement)
 	gob.Register(&MapTask{})
 	for i, file := range files {
