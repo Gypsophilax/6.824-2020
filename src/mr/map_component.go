@@ -29,8 +29,6 @@ func (mt *MapTask) DoTask(w *MRWorker) error {
 	_ = inFile.Close()
 	kva := w.mapf(filename, string(content))
 	sort.Sort(ByKey(kva))
-
-	mt.OutFile = mt.BuildOutputFileNames()
 	// 1. 根据key进行划分
 	for i := range kva {
 		kv := kva[i]
@@ -63,7 +61,7 @@ func (mt *MapTask) DoTask(w *MRWorker) error {
 
 	return nil
 }
-func (mt *MapTask) ChangeState(m *Master, state State) error {
+func (mt *MapTask) ChangeElementAndTaskState(m *Master, state State) error {
 
 	if me, ok := m.mapElements.Load(mt.InFile); ok {
 		me := me.(*MapElement)
@@ -79,12 +77,12 @@ func (mt *MapTask) BuildOutputFileNames() []string {
 	var filenames []string
 	s := MapFilePrefix + strconv.Itoa(mt.Number) + "-"
 	for i := 0; i < 10; i++ {
-		filenames = append(filenames, s+strconv.Itoa(mt.Number)+FileSuffix)
+		filenames = append(filenames, s+strconv.Itoa(i)+FileSuffix)
 	}
 	return filenames
 }
 
-// 将 Tasker 对应的 TaskElement 和 MRWorker进行绑定
+// 将 IMasterTask 对应的 TaskElement 和 MRWorker进行绑定
 func (mt *MapTask) BindMRWorker(m *Master, workerid int32) error {
 	worker, ok := m.workers.Load(workerid)
 	me, o := m.mapElements.Load(mt.InFile)
@@ -99,4 +97,10 @@ func (mt *MapTask) BindMRWorker(m *Master, workerid int32) error {
 		return nil
 	}
 	return errors.New("bind MapTaskElement to MRWorker fail")
+}
+func (mt *MapTask) TransToWTask() IWorkerTask {
+	return mt
+}
+func (mt *MapTask) TransToMTask() IMasterTask {
+	return mt
 }

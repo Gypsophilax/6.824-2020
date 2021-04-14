@@ -1,32 +1,40 @@
 package utils
 
 import (
+	"../mr"
 	"sync"
 )
 
 // 线程安全的 slice
 type Slice struct {
 	elements []interface{}
-	lock     sync.RWMutex
+	mr.MLock
 }
 
-func (l *Slice) Add(element interface{}) {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	l.elements = append(l.elements, element)
+func (s *Slice) Add(element interface{}) {
+	s.Lock()
+	defer s.UnLock()
+	s.elements = append(s.elements, element)
 }
-func (l *Slice) Get(i int) interface{} {
-	l.lock.RLock()
-	defer l.lock.RUnlock()
-	return l.elements[i]
+func (s *Slice) Get(i int) interface{} {
+	s.Lock()
+	defer s.UnLock()
+	return s.elements[i]
 }
-func (l *Slice) Delete(i int) {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-	l.elements = append(l.elements[:i], l.elements[i+1:]...)
+func (s *Slice) Delete(i int) {
+	s.Lock()
+	defer s.UnLock()
+	s.elements = append(s.elements[:i], s.elements[i+1:]...)
+}
+func (s *Slice) Clone() []interface{} {
+	s.Lock()
+	defer s.UnLock()
+	var cElements []interface{}
+	copy(s.elements, cElements)
+	return cElements
 }
 func NewSlice() *Slice {
 	slice := new(Slice)
-	slice.lock = sync.RWMutex{}
+	slice.MLock = mr.MLock{Mutex: sync.Mutex{}}
 	return slice
 }

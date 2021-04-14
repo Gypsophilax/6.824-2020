@@ -28,18 +28,28 @@ type RegisterArgs struct {
 }
 
 type RegisterReply struct {
-	WTasker Tasker // 任务
-	WId     int32  // MRWorker 向 Master 注册的 WId
+	WTask IWorkerTask // 任务
+	WId   int32       // MRWorker 向 Master 注册的 WId
+}
+
+// MRWorker 完成该任务之后向 Master 汇报
+type TaskDoneArgs struct {
+	Task IMasterTask
+}
+type TaskDoneReply struct {
+	Task IWorkerTask
 }
 
 // MRWorker 向 Master 发送心跳
-type HeartBeatArgs struct {
+type HeartbeatArgs struct {
 	WId int32
 	// todo 向 Master 报告任务状态
+	DoneTask []IMasterTask
+	ErrTask  []IMasterTask
 }
 
-type HeartBeatReply struct {
-	WTasker Tasker
+type HeartbeatReply struct {
+	WTask IMasterTask
 }
 
 // Add your RPC definitions here.

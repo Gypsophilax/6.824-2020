@@ -21,15 +21,15 @@ type Element struct {
 	id    int
 }
 type MLock struct {
-	lock sync.Mutex
+	Mutex sync.Mutex
 }
 
 func (l *MLock) Lock() {
-	l.lock.Lock()
+	l.Mutex.Lock()
 }
 
 func (l *MLock) UnLock() {
-	l.lock.Unlock()
+	l.Mutex.Unlock()
 }
 
 // MapTaskElement
@@ -76,7 +76,6 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 // MRWorker 首次链接注册 Master，
 func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
-	var rErr error = nil
 	// 是否已经存在 该Id的  WorkerElement
 	if _, ok := m.workers.Load(args.WId); !ok && args.WId < 0 {
 		count := atomic.AddInt32(&m.count, 1)
@@ -86,30 +85,33 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 		reply.WId = count
 
 	}
-	// 是否有已经存在的 Tasker 分配给 MRWorker
-	var tasker Tasker
-	rErr, tasker = m.getTask()
-	if rErr != nil {
-		log.Fatal(rErr)
+	// 是否有已经存在的 IMasterTask 分配给 MRWorker
+	err, task := m.getAndBindTask(reply.WId)
+	if err != nil {
+		log.Fatal(err)
+		return err
 	}
-	if tasker != nil {
-		rErr = tasker.BindMRWorker(m, reply.WId)
-	}
-	return rErr
+	reply.WTask = task
+	return err
 }
 
-func (m *Master) getTask() (error, Tasker) {
+func (m *Master) getAndBindTask(workerid int32) (error, IWorkerTask) {
 	task, err := m.taskQueue.GetNoWait()
 	if err != nil {
 		return err, nil
 	}
-	tasker := task.(Tasker)
-	//  改变对应 Element 的状态
-
-	if err = tasker.ChangeState(m, Progress); err != nil {
+	mTask := task.(IMasterTask)
+	//  改变对应 Element 的状态，并绑定 MRWorker
+	if err = mTask.ChangeElementAndTaskState(m, Progress); err != nil {
 		return err, nil
 	}
-	return nil, tasker
+
+	if err = mTask.BindMRWorker(m, workerid); err != nil {
+		log.Printf("bind error: %v", err)
+		return err, nil
+
+	}
+	return nil, mTask.TransToWTask()
 }
 
 // 初始化 Master
@@ -119,7 +121,8 @@ func (m *Master) init(files []string) {
 	m.mapElements = sync.Map{}
 	gob.Register(&MapTask{})
 	for i, file := range files {
-		mapTask := MapTask{Task{InFile: file, State: Idle, Number: i}}
+		mapTask := MapTask{Task{InFile: file, Number: i}}
+		mapTask.OutFile = mapTask.BuildOutputFileNames()
 		m.mapElements.Store(file, &MapElement{Element{MLock{sync.Mutex{}}, file, Idle, i}, make([]*ReduceElement, m.nReduce)})
 		_ = m.taskQueue.PutNoWait(&mapTask)
 	}
@@ -156,7 +159,7 @@ func (m *Master) Done() bool {
 //
 // create a Master.
 // main/mrmaster.go calls this function.
-// nReduce is the number of reduce tasks to use.
+// nReduce is the number of reduce todoTask to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}

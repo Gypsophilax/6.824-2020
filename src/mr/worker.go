@@ -20,7 +20,10 @@ type KeyValue struct {
 }
 
 type MRWorker struct {
-	taskQueue *utils.Queue // linkedList
+	todoTask  *utils.Queue // 未处理的 IMasterTask
+	doingTask *utils.Queue // MRWorker 负责的 IMasterTask
+	doneTask  *utils.Queue
+	errTask   *utils.Queue
 	id        int32
 	mapf      func(string, string) []KeyValue
 	reducef   func(string, []string) string
@@ -48,7 +51,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	w := new(MRWorker)
 	w.init(mapf, reducef)
 	err := w.Register()
-	w.doTasker()
+	w.doMTask()
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -83,13 +86,16 @@ func CallExample() {
 func (w *MRWorker) init(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	gob.Register(&MapTask{})
-	w.taskQueue = utils.New(0)
+	w.todoTask = utils.New(0)
+	w.doingTask = utils.New(0)
+	w.doneTask = utils.New(0)
+	w.errTask = utils.New(0)
 	w.id = -1
 	w.mapf = mapf
 	w.reducef = reducef
 }
 
-// MRWorker 初次向 Master 注册，可能会返回 Tasker
+// MRWorker 初次向 Master 注册，可能会返回 IMasterTask
 func (w *MRWorker) Register() error {
 	args := RegisterArgs{WId: w.id}
 	reply := RegisterReply{}
@@ -101,26 +107,38 @@ func (w *MRWorker) Register() error {
 		}
 
 	}
-	//  如果有任务分配就放到 taskQueue 中
-	if reply.WTasker != nil {
-		return w.taskQueue.PutNoWait(reply.WTasker)
+	//  如果有任务分配就放到 todoTask 中
+	if reply.WTask != nil {
+		return w.todoTask.PutNoWait(reply.WTask)
 	}
 	return nil
 }
 
 // 循环从队列中获取任务并完成任务
-func (w *MRWorker) doTasker() {
+func (w *MRWorker) doMTask() {
 	for true {
-		if task, err := w.taskQueue.GetNoWait(); err == nil {
-			tasker := task.(Tasker)
-			fmt.Print(tasker)
-			err = tasker.DoTask(w) // todo 如果 error != nil ，应该重试然后向master报告
-			if err != nil {
+		if task, err := w.todoTask.GetNoWait(); err == nil {
+			wTask := task.(IWorkerTask)
+			_ = w.doingTask.PutNoWait(wTask)
+			err = wTask.DoTask(w)
+			if err != nil { // todo 如果 error != nil ，应该重试然后向master报告
 				_ = fmt.Errorf("DoTasker %v", err)
 				break
+			} else {
+				// todo 向 Master 报告任务完成
 			}
+		} else {
+			time.Sleep(WaitTimeForEmpty)
 		}
 	}
+}
+
+// todo 向 Master 发送心跳
+func (w *MRWorker) sendHeartbeat() {
+	// todo 发送心跳
+	args := HeartbeatArgs{WId: w.id}
+	reply := HeartbeatReply{}
+	//b := call("Master.Heartbeat", &args, &reply)
 }
 
 //
