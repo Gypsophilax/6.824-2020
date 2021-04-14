@@ -94,6 +94,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	}
 	if tasker != nil {
 		rErr = tasker.BindMRWorker(m, reply.WId)
+		reply.WTasker = tasker
 	}
 	return rErr
 }

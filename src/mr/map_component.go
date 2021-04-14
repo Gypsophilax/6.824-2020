@@ -79,7 +79,7 @@ func (mt *MapTask) BuildOutputFileNames() []string {
 	var filenames []string
 	s := MapFilePrefix + strconv.Itoa(mt.Number) + "-"
 	for i := 0; i < 10; i++ {
-		filenames = append(filenames, s+strconv.Itoa(mt.Number)+FileSuffix)
+		filenames = append(filenames, s+strconv.Itoa(i)+FileSuffix)
 	}
 	return filenames
 }
