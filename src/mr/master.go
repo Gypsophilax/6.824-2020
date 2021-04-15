@@ -4,9 +4,12 @@ import (
 	"../utils"
 	"container/list"
 	"encoding/gob"
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 import "net"
 import "os"
@@ -46,11 +49,17 @@ type ReduceElement struct {
 
 type WorkerElement struct { // Master 维护的 MRWorker 数据
 	MLock
-	ownMapElements    *list.List // Master 为 MRWorker 分配的Element
-	ownReduceElements *list.List // Master 为 MRWorker 分配的Element
+	ownMapElements    *list.List   // Master 为 MRWorker 分配的Element
+	ownReduceElements *list.List   // Master 为 MRWorker 分配的Element
+	alive             *utils.Queue // MRWorker 向 Master 发送的心跳信息
 	wState            WorkerState
 	id                int32
 }
+
+func (we *WorkerElement) sendPong() {
+	_ = we.alive.PutNoWait(Pong)
+}
+
 type Master struct {
 	// Your definitions here.
 	nReduce        int      // Map 被划分成 nReduce 个 Reduce
@@ -79,12 +88,14 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	// 是否已经存在 该Id的  WorkerElement
 	if _, ok := m.workers.Load(args.WId); !ok && args.WId < 0 {
 		count := atomic.AddInt32(&m.count, 1)
-		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), On, count} // todo 是否需要在注册的时候将任务进行分配，如果分配使用了chan会一直阻塞
+		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), utils.New(1), On, count}
 		m.workers.Store(count, &we)
 		//args.WId = count
 		reply.WId = count
 
 	}
+	// todo 心跳监听机制
+
 	// 是否有已经存在的 IMasterTask 分配给 MRWorker
 	err, task := m.getAndBindTask(reply.WId)
 	if err != nil {
@@ -95,6 +106,35 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	return err
 }
 
+// 处理 MRWorker 发送过来的心跳
+func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) {
+	// todo
+	worker, err := m.getWorkerElementById(args.WId)
+	if err != nil {
+		fmt.Printf("%v: %v", args.WId, err)
+		return
+	}
+	worker.sendPong()
+
+}
+
+// 检查 MRWorker 是否alive
+func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
+	for true {
+		if val, err := we.alive.Get(time.Second * 10); err == nil {
+			val = val.(HT)
+			if val == End {
+				return
+			}
+		} else {
+			// todo 超时处理， 把 MRWorker 下线，并且将任务进行重新分配
+			we.Lock()
+			we.wState = Off // 把 MRWorker 下线，并且将任务进行重新分配
+			we.UnLock()
+			return
+		}
+	}
+}
 func (m *Master) getAndBindTask(workerid int32) (error, IWorkerTask) {
 	task, err := m.taskQueue.GetNoWait()
 	if err != nil {
@@ -112,6 +152,13 @@ func (m *Master) getAndBindTask(workerid int32) (error, IWorkerTask) {
 
 	}
 	return nil, mTask.TransToWTask()
+}
+
+func (m *Master) getWorkerElementById(workerid int32) (*WorkerElement, error) {
+	if worker, ok := m.workers.Load(workerid); ok {
+		return worker.(*WorkerElement), nil
+	}
+	return nil, errors.New("id's worker doesn't exist ")
 }
 
 // 初始化 Master

@@ -135,10 +135,19 @@ func (w *MRWorker) doMTask() {
 
 // todo 向 Master 发送心跳
 func (w *MRWorker) sendHeartbeat() {
-	// todo 发送心跳
 	args := HeartbeatArgs{WId: w.id}
+	doneTask := w.doneTask.GetAll()
+	errTask := w.errTask.GetAll()
+	for i := range doneTask {
+		args.DoneTask = append(args.DoneTask, doneTask[i].(IMasterTask))
+	}
+	for i := range errTask {
+		args.ErrTask = append(args.ErrTask, errTask[i].(IMasterTask))
+	}
 	reply := HeartbeatReply{}
-	//b := call("Master.Heartbeat", &args, &reply)
+	call("Master.Heartbeat", &args, &reply)
+	// todo 处理心跳的返回
+	time.Sleep(time.Second * 3)
 }
 
 //

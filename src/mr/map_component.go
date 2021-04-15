@@ -90,6 +90,9 @@ func (mt *MapTask) BindMRWorker(m *Master, workerid int32) error {
 		worker := worker.(*WorkerElement)
 		worker.Lock()
 		defer worker.UnLock()
+		if worker.wState == Off {
+			return nil
+		}
 		me := me.(*MapElement)
 		me.Lock()
 		defer me.UnLock()
