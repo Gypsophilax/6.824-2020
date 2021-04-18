@@ -56,17 +56,17 @@ type WorkerElement struct { // Master 维护的 MRWorker 数据
 	id                int32
 }
 
-func (we *WorkerElement) sendPong() {
-	_ = we.alive.PutNoWait(Pong)
+func (we *WorkerElement) sendSign(sign HT) {
+	_ = we.alive.PutNoWait(sign)
 }
 
 type Master struct {
 	// Your definitions here.
-	nReduce        int      // Map 被划分成 nReduce 个 Reduce
-	mapElements    sync.Map // 处理的 FileName -> MapElement
-	reduceElements sync.Map
+	nReduce        int       // Map 被划分成 nReduce 个 Reduce
+	mapElements    *sync.Map // 处理的 FileName -> MapElement
+	reduceElements *sync.Map
 	taskQueue      *utils.Queue // Map 和 Reduce 的任务队列
-	workers        sync.Map     //  worker machine 根据唯一id进行map 映射
+	workers        *sync.Map    //  worker machine 根据唯一id进行map 映射
 	count          int32        // Master 为 WorkerElement 分配的唯一标识
 
 }
@@ -107,14 +107,48 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 }
 
 // 处理 MRWorker 发送过来的心跳
-func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) {
-	// todo
-	worker, err := m.getWorkerElementById(args.WId)
+func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
+	// 向 WorkerElement 的心跳监听队列发送 Pong
+	log.Println(" Master receive MRWorker' heartbeat")
+	we, err := m.getWorkerElementById(args.WId)
 	if err != nil {
 		fmt.Printf("%v: %v", args.WId, err)
-		return
+		return err
 	}
-	worker.sendPong()
+	// todo 处理心跳带来的消息
+	we.Lock()
+	reply.State = we.wState
+	we.UnLock()
+	if reply.State == On {
+		we.sendSign(Pong)
+		// todo 处理已经完成的任务
+		tasks := args.DoneTask
+		for i := range tasks {
+			err = tasks[i].ChangeElementAndTaskState(m, Progress, Complete)
+			if err != nil {
+				reply.DoneTask = append(reply.DoneTask, tasks[i].TransToWTask())
+			}
+
+		}
+		// todo 处理未完成的任务
+		tasks = args.ErrTask
+		for i := range tasks {
+			err = tasks[i].AddToTaskQueue(m)
+			if err != nil {
+				reply.ErrTask = append(reply.ErrTask, tasks[i].TransToWTask())
+			}
+		}
+		// 如果还有任务就交给worker去做
+		err, task := m.getAndBindTask(args.WId)
+		if err != nil {
+			log.Fatal(err)
+			return err
+		}
+		reply.WTask = task
+	} else {
+		we.sendSign(End)
+	}
+	return nil
 
 }
 
@@ -130,7 +164,31 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 			// todo 超时处理， 把 MRWorker 下线，并且将任务进行重新分配
 			we.Lock()
 			we.wState = Off // 把 MRWorker 下线，并且将任务进行重新分配
+			mlist := we.ownMapElements
+			rlist := we.ownReduceElements
+			we.ownMapElements = list.New()
+			we.ownReduceElements = list.New()
 			we.UnLock()
+			for i := mlist.Front(); i != nil; i = i.Next() {
+				me := i.Value.(*MapElement)
+				me.Lock()
+				if me.state != Complete {
+					task := MapTask{Task{Number: me.id, InFile: me.file}}
+					_ = m.taskQueue.PutNoWait(&task)
+					me.state = Idle
+				}
+				me.UnLock()
+			}
+			for i := rlist.Front(); i != nil; i = i.Next() {
+				re := i.Value.(*ReduceElement)
+				re.Lock()
+				if re.state != Complete {
+					task := ReduceTask{Task{Number: re.id, InFile: re.file}}
+					_ = m.taskQueue.PutNoWait(&task)
+					re.state = Idle
+				}
+				re.UnLock()
+			}
 			return
 		}
 	}
@@ -142,7 +200,7 @@ func (m *Master) getAndBindTask(workerid int32) (error, IWorkerTask) {
 	}
 	mTask := task.(IMasterTask)
 	//  改变对应 Element 的状态，并绑定 MRWorker
-	if err = mTask.ChangeElementAndTaskState(m, Progress); err != nil {
+	if err = mTask.ChangeElementAndTaskState(m, Idle, Progress); err != nil {
 		return err, nil
 	}
 
@@ -165,7 +223,9 @@ func (m *Master) getWorkerElementById(workerid int32) (*WorkerElement, error) {
 func (m *Master) init(files []string) {
 	m.taskQueue = utils.New(0)
 	m.count = -1
-	m.mapElements = sync.Map{}
+	m.mapElements = &sync.Map{}
+	m.reduceElements = &sync.Map{}
+	m.workers = &sync.Map{}
 	gob.Register(&MapTask{})
 	for i, file := range files {
 		mapTask := MapTask{Task{InFile: file, Number: i}}

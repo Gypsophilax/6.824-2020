@@ -37,16 +37,19 @@ type Task struct {
 
 // Master Task 数据结构
 type IMasterTask interface {
-	ChangeElementAndTaskState(m *Master, state State) error
+	ChangeElementAndTaskState(m *Master, oldstate State, newstate State) error
 	BindMRWorker(m *Master, workerid int32) error
 	TransToWTask() IWorkerTask
 	BuildOutputFileNames() []string
+	AddToTaskQueue(m *Master) error
+	GetInputName() string
 }
 
 // MRWorker Task 数据结构
 type IWorkerTask interface {
 	DoTask(w *MRWorker) error
 	TransToMTask() IMasterTask
+	GetInputName() string
 }
 
 // for sorting by key.

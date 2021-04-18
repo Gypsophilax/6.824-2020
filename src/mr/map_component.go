@@ -61,18 +61,36 @@ func (mt *MapTask) DoTask(w *MRWorker) error {
 
 	return nil
 }
-func (mt *MapTask) ChangeElementAndTaskState(m *Master, state State) error {
+
+// 改变 MapElement 的状态
+func (mt *MapTask) ChangeElementAndTaskState(m *Master, oldstate State, newstate State) error {
 
 	if me, ok := m.mapElements.Load(mt.InFile); ok {
 		me := me.(*MapElement)
 		me.Lock()
 		defer me.UnLock()
-		me.state = state
-		return nil
+		if me.state == oldstate {
+			me.state = newstate
+			return nil
+		}
 	}
 	_ = m.taskQueue.PutNoWait(mt)
-	return errors.New(" error change " + mt.InFile + " 's state to " + strconv.Itoa(int(state)))
+	return errors.New(" error change " + mt.InFile + " 's state to " + strconv.Itoa(int(newstate)))
 }
+
+// 将 MapElement 添加到 taskQueue
+func (mt *MapTask) AddToTaskQueue(m *Master) error {
+	err := mt.ChangeElementAndTaskState(m, Progress, Idle)
+	if err != nil {
+		return err
+	}
+	return m.taskQueue.PutNoWait(mt)
+}
+
+func (mt *MapTask) GetInputName() string {
+	return mt.InFile
+}
+
 func (mt *MapTask) BuildOutputFileNames() []string {
 	var filenames []string
 	s := MapFilePrefix + strconv.Itoa(mt.Number) + "-"

@@ -227,10 +227,9 @@ func (q *Queue) IsFull() bool {
 	return q.isfull()
 }
 func (q *Queue) GetAll() []interface{} {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
+
 	var val []interface{}
-	for !q.IsEmpty() {
+	for size := q.Size(); size > 0; size-- {
 		v, _ := q.Get(-1)
 		val = append(val, v)
 	}

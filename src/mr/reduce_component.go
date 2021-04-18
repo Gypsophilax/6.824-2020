@@ -11,8 +11,6 @@ type ReduceTask struct {
 
 func (rt *ReduceTask) DoTask(w *MRWorker) error {
 	println("this is map's task")
-	rt.State = Complete
-	println("worker do %v", rt.State)
 
 	return nil
 }

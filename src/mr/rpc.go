@@ -49,7 +49,10 @@ type HeartbeatArgs struct {
 }
 
 type HeartbeatReply struct {
-	WTask IMasterTask
+	WTask    IWorkerTask   // 新任务
+	DoneTask []IWorkerTask //
+	ErrTask  []IWorkerTask
+	State    WorkerState // MRWorker 在 Master 中的状态
 }
 
 // Add your RPC definitions here.

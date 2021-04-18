@@ -20,8 +20,8 @@ type KeyValue struct {
 }
 
 type MRWorker struct {
-	todoTask  *utils.Queue // 未处理的 IMasterTask
-	doingTask *utils.Queue // MRWorker 负责的 IMasterTask
+	todoTask  *utils.Queue // 未处理的 IWorkerTask
+	doingTask *utils.Queue // MRWorker 负责的 IWorkerTask
 	doneTask  *utils.Queue
 	errTask   *utils.Queue
 	id        int32
@@ -56,6 +56,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		log.Fatal(err)
 		return
 	}
+	w.sendHeartbeat()
 
 }
 
@@ -109,45 +110,70 @@ func (w *MRWorker) Register() error {
 	}
 	//  如果有任务分配就放到 todoTask 中
 	if reply.WTask != nil {
-		return w.todoTask.PutNoWait(reply.WTask)
+		_ = w.todoTask.PutNoWait(reply.WTask)
 	}
 	return nil
 }
 
 // 循环从队列中获取任务并完成任务
 func (w *MRWorker) doMTask() {
-	for true {
-		if task, err := w.todoTask.GetNoWait(); err == nil {
-			wTask := task.(IWorkerTask)
-			_ = w.doingTask.PutNoWait(wTask)
-			err = wTask.DoTask(w)
-			if err != nil { // todo 如果 error != nil ，应该重试然后向master报告
-				_ = fmt.Errorf("DoTasker %v", err)
-				break
-			} else {
-				// todo 向 Master 报告任务完成
-			}
+	//for true {
+	if task, err := w.todoTask.GetNoWait(); err == nil {
+		wTask := task.(IWorkerTask)
+		_ = w.doingTask.PutNoWait(wTask)
+		err = wTask.DoTask(w)
+		if err != nil { // todo 如果 error != nil ，应该重试然后向master报告
+			_ = fmt.Errorf("DoTasker %v", err)
+			_ = w.errTask.PutNoWait(task)
+			//break
 		} else {
-			time.Sleep(WaitTimeForEmpty)
+			// todo 向 Master 报告任务完成
+			_ = w.doneTask.PutNoWait(task)
 		}
+	} else {
+		time.Sleep(WaitTimeForEmpty)
 	}
+	//}
 }
 
-// todo 向 Master 发送心跳
+// 向 Master 发送心跳
 func (w *MRWorker) sendHeartbeat() {
-	args := HeartbeatArgs{WId: w.id}
-	doneTask := w.doneTask.GetAll()
-	errTask := w.errTask.GetAll()
-	for i := range doneTask {
-		args.DoneTask = append(args.DoneTask, doneTask[i].(IMasterTask))
+	for true {
+		log.Println(" MRWorker send Master heartbeat")
+		args := HeartbeatArgs{WId: w.id}
+		doneTask := w.doneTask.GetAll()
+		errTask := w.errTask.GetAll()
+		for i := range doneTask {
+			dtask := doneTask[i].(IMasterTask)
+			args.DoneTask = append(args.DoneTask, dtask)
+		}
+		for i := range errTask {
+			etask := errTask[i].(IMasterTask)
+			args.ErrTask = append(args.ErrTask, etask)
+		}
+		reply := HeartbeatReply{}
+		call("Master.Heartbeat", &args, &reply)
+		// todo 处理心跳的返回
+		if reply.State == Off {
+			// 说明 MRWorker 已经被 Master 认定为下线
+			//_ = w.Register()
+			break
+		}
+
+		dtask := reply.DoneTask
+		for i := range dtask {
+			w.doneTask.PutNoWait(dtask[i])
+		}
+		etask := reply.ErrTask
+		for i := range etask {
+			w.errTask.PutNoWait(etask[i])
+		}
+		//  如果有任务分配就放到 todoTask 中
+		if reply.WTask != nil {
+			_ = w.todoTask.PutNoWait(reply.WTask)
+		}
+		time.Sleep(time.Second * 3)
 	}
-	for i := range errTask {
-		args.ErrTask = append(args.ErrTask, errTask[i].(IMasterTask))
-	}
-	reply := HeartbeatReply{}
-	call("Master.Heartbeat", &args, &reply)
-	// todo 处理心跳的返回
-	time.Sleep(time.Second * 3)
 }
 
 //
