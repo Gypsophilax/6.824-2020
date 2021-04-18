@@ -9,16 +9,18 @@ import (
 	"os"
 	"sort"
 	"strconv"
-	"sync"
+	"sync/atomic"
 )
 
 type MapTask struct {
-	Task
+	Number  int
+	InFile  string   // 需要读取进行处理的文件
+	OutFile []string // 应该输出的文件名
 }
 
 func (mt *MapTask) DoTask(w *MRWorker) error {
 	filename := mt.InFile
-	intermediate := make([][]KeyValue, 10)
+	intermediate := make([][]KeyValue, len(mt.OutFile))
 	inFile, err := os.Open(filename)
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)
@@ -88,14 +90,14 @@ func (mt *MapTask) DealErrorTask(m *Master) error {
 	return m.taskQueue.PutNoWait(mt)
 }
 
-func (mt *MapTask) GetInputName() string {
+func (mt *MapTask) GetFileName() string {
 	return mt.InFile
 }
 
-func (mt *MapTask) BuildOutputFileNames() []string {
+func (mt *MapTask) BuildFileNames(m *Master) []string {
 	var filenames []string
 	s := MapFilePrefix + strconv.Itoa(mt.Number) + "-"
-	for i := 0; i < 10; i++ {
+	for i := 0; i < m.nReduce; i++ {
 		filenames = append(filenames, s+strconv.Itoa(i)+FileSuffix)
 	}
 	return filenames
@@ -135,13 +137,12 @@ func (mt *MapTask) DealDoneTask(m *Master) error {
 		// todo 创建 ReduceElement
 		me.Lock()
 		defer me.UnLock()
-		for i := range mt.OutFile {
-			re := ReduceElement{Element{MLock{sync.Mutex{}}, mt.OutFile[i], Idle, i}, me}
-			me.reduceElement = append(me.reduceElement, &re)
-			m.reduceElements.Store(re.file, &re)
-			err = m.taskQueue.PutNoWait(&ReduceTask{Task{Number: i, InFile: re.file}})
-		}
 		me.state = Complete
+		if atomic.AddInt32(&m.doneMapTaskCount, 1) == int32(m.nMap) {
+			// todo 生成 ReduceTask
+			m.initReduce()
+		}
+
 	}
 	return err
 }

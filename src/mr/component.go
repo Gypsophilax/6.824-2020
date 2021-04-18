@@ -29,20 +29,15 @@ const (
 type State int
 type WorkerState int
 type HT int
-type Task struct {
-	Number  int
-	InFile  string   // 需要读取进行处理的文件
-	OutFile []string // 应该输出的文件名
-}
 
 // Master Task 数据结构
 type IMasterTask interface {
 	ChangeElementAndTaskState(m *Master, oldstate State, newstate State) error
 	BindMRWorker(m *Master, workerid int32) error
 	TransToWTask() IWorkerTask
-	BuildOutputFileNames() []string
+	BuildFileNames(m *Master) []string
 	DealErrorTask(m *Master) error
-	GetInputName() string
+	GetFileName() string
 	DealDoneTask(m *Master) error
 }
 
@@ -50,7 +45,7 @@ type IMasterTask interface {
 type IWorkerTask interface {
 	DoTask(w *MRWorker) error
 	TransToMTask() IMasterTask
-	GetInputName() string
+	GetFileName() string
 }
 
 // for sorting by key.

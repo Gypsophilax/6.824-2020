@@ -51,12 +51,12 @@ func Worker(mapf func(string, string) []KeyValue,
 	w := new(MRWorker)
 	w.init(mapf, reducef)
 	err := w.Register()
-	w.doMTask()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	w.sendHeartbeat()
+	go w.sendHeartbeat()
+	w.doMTask()
 
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +20,6 @@ import "net/http"
 // TaskElement
 type Element struct {
 	MLock
-	file  string
 	state State // Map 的状态
 	id    int
 }
@@ -38,13 +38,15 @@ func (l *MLock) UnLock() {
 // MapTaskElement
 type MapElement struct {
 	Element
-	reduceElement []*ReduceElement
+	file string
+	//reduceElement []*ReduceElement
 }
 
 // ReduceTaskElement
 type ReduceElement struct {
 	Element
-	mapElement *MapElement
+	file []string
+	//mapElement *MapElement
 }
 
 type WorkerElement struct { // Master 维护的 MRWorker 数据
@@ -62,13 +64,15 @@ func (we *WorkerElement) sendSign(sign HT) {
 
 type Master struct {
 	// Your definitions here.
-	nReduce        int       // Map 被划分成 nReduce 个 Reduce
-	mapElements    *sync.Map // 处理的 FileName -> MapElement
-	reduceElements *sync.Map
-	taskQueue      *utils.Queue // Map 和 Reduce 的任务队列
-	workers        *sync.Map    //  worker machine 根据唯一id进行map 映射
-	count          int32        // Master 为 WorkerElement 分配的唯一标识
-
+	nReduce             int // Map 被划分成 nReduce 个 Reduce
+	nMap                int
+	mapElements         *sync.Map // 处理的 FileName -> MapElement
+	reduceElements      *sync.Map
+	taskQueue           *utils.Queue // Map 和 Reduce 的任务队列
+	workers             *sync.Map    //  worker machine 根据唯一id进行map 映射
+	count               int32        // Master 为 WorkerElement 分配的唯一标识
+	doneMapTaskCount    int32
+	doneReduceTaskCount int32
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -90,6 +94,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 		count := atomic.AddInt32(&m.count, 1)
 		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), utils.New(1), On, count}
 		m.workers.Store(count, &we)
+		go m.checkMRWorkerAlive(&we) // MRWorker 注册成功，监听心跳
 		//args.WId = count
 		reply.WId = count
 
@@ -173,7 +178,7 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				me := i.Value.(*MapElement)
 				me.Lock()
 				if me.state != Complete {
-					task := MapTask{Task{Number: me.id, InFile: me.file}}
+					task := MapTask{Number: me.id, InFile: me.file}
 					_ = m.taskQueue.PutNoWait(&task)
 					me.state = Idle
 				}
@@ -183,7 +188,7 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				re := i.Value.(*ReduceElement)
 				re.Lock()
 				if re.state != Complete {
-					task := ReduceTask{Task{Number: re.id, InFile: re.file}}
+					task := ReduceTask{Number: re.id, InFile: re.file}
 					_ = m.taskQueue.PutNoWait(&task)
 					re.state = Idle
 				}
@@ -223,15 +228,28 @@ func (m *Master) getWorkerElementById(workerid int32) (*WorkerElement, error) {
 func (m *Master) init(files []string) {
 	m.taskQueue = utils.New(0)
 	m.count = -1
+	m.doneMapTaskCount = 0
+	m.doneReduceTaskCount = 0
+	m.nMap = len(files)
 	m.mapElements = &sync.Map{}
 	m.reduceElements = &sync.Map{}
 	m.workers = &sync.Map{}
 	gob.Register(&MapTask{})
 	for i, file := range files {
-		mapTask := MapTask{Task{InFile: file, Number: i}}
-		mapTask.OutFile = mapTask.BuildOutputFileNames()
-		m.mapElements.Store(file, &MapElement{Element{MLock{sync.Mutex{}}, file, Idle, i}, make([]*ReduceElement, m.nReduce)})
+		mapTask := MapTask{InFile: file, Number: i}
+		mapTask.OutFile = mapTask.BuildFileNames(m)
+		m.mapElements.Store(file, &MapElement{Element{MLock{sync.Mutex{}}, Idle, i}, file})
 		_ = m.taskQueue.PutNoWait(&mapTask)
+	}
+}
+
+// MapTask 已经完成
+func (m *Master) initReduce() {
+	for i := 0; i < m.nReduce; i++ {
+		reduceTask := ReduceTask{Number: i, OutFile: ReduceFilePrefix + strconv.Itoa(i)}
+		reduceTask.InFile = reduceTask.BuildFileNames(m)
+		m.reduceElements.Store(reduceTask.OutFile, &ReduceElement{Element{MLock{sync.Mutex{}}, Idle, i}, reduceTask.InFile})
+		_ = m.taskQueue.PutNoWait(&reduceTask)
 	}
 }
 
