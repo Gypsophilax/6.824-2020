@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,8 +65,26 @@ func (rt *ReduceTask) BuildFileNames(m *Master) []string {
 	return filenames
 }
 
-func (rt *ReduceTask) DealErrorTask(m *Master) error {
+func (rt *ReduceTask) DealErrorTask(m *Master, workerid int32) error {
 	err := rt.ChangeElementAndTaskState(m, Progress, Idle)
+	worker, ok := m.workers.Load(workerid)
+	we, o := m.reduceElements.Load(rt.OutFile)
+	// todo 解绑
+	if ok && o {
+		worker := worker.(*WorkerElement)
+		worker.Lock()
+		defer worker.UnLock()
+		we := we.(*ReduceElement)
+		we.Lock()
+		defer we.UnLock()
+		var del *list.Element
+		for del = worker.ownReduceElements.Front(); del != nil; del = del.Next() {
+			if del.Value.(*ReduceElement).id == we.id {
+				break
+			}
+		}
+		worker.ownReduceElements.Remove(del)
+	}
 	if err != nil {
 		return err
 	}

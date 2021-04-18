@@ -138,7 +138,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 		// 处理未完成的任务
 		tasks = args.ErrTask
 		for i := range tasks {
-			err = tasks[i].DealErrorTask(m)
+			err = tasks[i].DealErrorTask(m, args.WId)
 			if err != nil {
 				reply.ErrTask = append(reply.ErrTask, tasks[i].TransToWTask())
 			}

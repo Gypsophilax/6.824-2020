@@ -36,7 +36,7 @@ type IMasterTask interface {
 	BindMRWorker(m *Master, workerid int32) error
 	TransToWTask() IWorkerTask
 	BuildFileNames(m *Master) []string
-	DealErrorTask(m *Master) error
+	DealErrorTask(m *Master, workerid int32) error
 	GetFileName() string
 	DealDoneTask(m *Master) error
 }

@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,8 +83,26 @@ func (mt *MapTask) ChangeElementAndTaskState(m *Master, oldstate State, newstate
 }
 
 // 将 MapElement 添加到 taskQueue
-func (mt *MapTask) DealErrorTask(m *Master) error {
+func (mt *MapTask) DealErrorTask(m *Master, workerid int32) error {
 	err := mt.ChangeElementAndTaskState(m, Progress, Idle)
+	worker, ok := m.workers.Load(workerid)
+	me, o := m.mapElements.Load(mt.InFile)
+	// todo 解绑
+	if ok && o {
+		worker := worker.(*WorkerElement)
+		worker.Lock()
+		defer worker.UnLock()
+		me := me.(*MapElement)
+		me.Lock()
+		defer me.UnLock()
+		var del *list.Element
+		for del = worker.ownMapElements.Front(); del != nil; del = del.Next() {
+			if del.Value.(*MapElement).id == me.id {
+				break
+			}
+		}
+		worker.ownMapElements.Remove(del)
+	}
 	if err != nil {
 		return err
 	}
