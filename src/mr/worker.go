@@ -122,12 +122,12 @@ func (w *MRWorker) doMTask() {
 		wTask := task.(IWorkerTask)
 		_ = w.doingTask.PutNoWait(wTask)
 		err = wTask.DoTask(w)
-		if err != nil { // todo 如果 error != nil ，应该重试然后向master报告
+		if err != nil { // 如果 error != nil ，应该重试然后向master报告
 			_ = fmt.Errorf("DoTasker %v", err)
 			_ = w.errTask.PutNoWait(task)
 			//break
 		} else {
-			// todo 向 Master 报告任务完成
+			// 向 Master 报告任务完成
 			_ = w.doneTask.PutNoWait(task)
 		}
 	} else {
@@ -153,9 +153,8 @@ func (w *MRWorker) sendHeartbeat() {
 		}
 		reply := HeartbeatReply{}
 		call("Master.Heartbeat", &args, &reply)
-		// todo 处理心跳的返回
 		if reply.State == Off {
-			// 说明 MRWorker 已经被 Master 认定为下线
+			// todo 说明 MRWorker 已经被 Master 认定为下线
 			//_ = w.Register()
 			break
 		}

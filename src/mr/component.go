@@ -41,8 +41,9 @@ type IMasterTask interface {
 	BindMRWorker(m *Master, workerid int32) error
 	TransToWTask() IWorkerTask
 	BuildOutputFileNames() []string
-	AddToTaskQueue(m *Master) error
+	DealErrorTask(m *Master) error
 	GetInputName() string
+	DealDoneTask(m *Master) error
 }
 
 // MRWorker Task 数据结构

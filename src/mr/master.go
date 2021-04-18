@@ -94,7 +94,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 		reply.WId = count
 
 	}
-	// todo 心跳监听机制
+	// 心跳监听机制
 
 	// 是否有已经存在的 IMasterTask 分配给 MRWorker
 	err, task := m.getAndBindTask(reply.WId)
@@ -115,25 +115,25 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 		fmt.Printf("%v: %v", args.WId, err)
 		return err
 	}
-	// todo 处理心跳带来的消息
+	// 处理心跳带来的消息
 	we.Lock()
 	reply.State = we.wState
 	we.UnLock()
 	if reply.State == On {
 		we.sendSign(Pong)
-		// todo 处理已经完成的任务
+		// 处理已经完成的任务
 		tasks := args.DoneTask
 		for i := range tasks {
-			err = tasks[i].ChangeElementAndTaskState(m, Progress, Complete)
+			err = tasks[i].DealDoneTask(m)
 			if err != nil {
 				reply.DoneTask = append(reply.DoneTask, tasks[i].TransToWTask())
 			}
 
 		}
-		// todo 处理未完成的任务
+		// 处理未完成的任务
 		tasks = args.ErrTask
 		for i := range tasks {
-			err = tasks[i].AddToTaskQueue(m)
+			err = tasks[i].DealErrorTask(m)
 			if err != nil {
 				reply.ErrTask = append(reply.ErrTask, tasks[i].TransToWTask())
 			}
@@ -161,7 +161,7 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				return
 			}
 		} else {
-			// todo 超时处理， 把 MRWorker 下线，并且将任务进行重新分配
+			// 超时处理， 把 MRWorker 下线，并且将任务进行重新分配
 			we.Lock()
 			we.wState = Off // 把 MRWorker 下线，并且将任务进行重新分配
 			mlist := we.ownMapElements

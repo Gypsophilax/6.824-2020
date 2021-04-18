@@ -43,7 +43,7 @@ type TaskDoneReply struct {
 // MRWorker 向 Master 发送心跳
 type HeartbeatArgs struct {
 	WId int32
-	// todo 向 Master 报告任务状态
+	// 向 Master 报告任务状态
 	DoneTask []IMasterTask
 	ErrTask  []IMasterTask
 }

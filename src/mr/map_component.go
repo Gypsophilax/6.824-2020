@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 )
 
 type MapTask struct {
@@ -79,7 +80,7 @@ func (mt *MapTask) ChangeElementAndTaskState(m *Master, oldstate State, newstate
 }
 
 // 将 MapElement 添加到 taskQueue
-func (mt *MapTask) AddToTaskQueue(m *Master) error {
+func (mt *MapTask) DealErrorTask(m *Master) error {
 	err := mt.ChangeElementAndTaskState(m, Progress, Idle)
 	if err != nil {
 		return err
@@ -124,4 +125,23 @@ func (mt *MapTask) TransToWTask() IWorkerTask {
 }
 func (mt *MapTask) TransToMTask() IMasterTask {
 	return mt
+}
+
+// MapTask 被完成的时候进行的操作
+func (mt *MapTask) DealDoneTask(m *Master) error {
+	var err error
+	if me, ok := m.mapElements.Load(mt.InFile); ok {
+		me := me.(*MapElement)
+		// todo 创建 ReduceElement
+		me.Lock()
+		defer me.UnLock()
+		for i := range mt.OutFile {
+			re := ReduceElement{Element{MLock{sync.Mutex{}}, mt.OutFile[i], Idle, i}, me}
+			me.reduceElement = append(me.reduceElement, &re)
+			m.reduceElements.Store(re.file, &re)
+			err = m.taskQueue.PutNoWait(&ReduceTask{Task{Number: i, InFile: re.file}})
+		}
+		me.state = Complete
+	}
+	return err
 }
