@@ -99,6 +99,8 @@ type Master struct {
 	count               int32        // Master 为 WorkerElement 分配的唯一标识
 	doneMapTaskCount    int32
 	doneReduceTaskCount int32
+	workerCount         int32
+	complete            int32
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -116,10 +118,16 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 // MRWorker 首次链接注册 Master，
 func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	// 是否已经存在 该Id的  WorkerElement
+	count := atomic.AddInt32(&m.count, 1)
+	if atomic.LoadInt32(&m.complete) == 1 {
+		reply.WTask = &ExitTask{}
+		reply.WId = count
+		return nil
+	}
 	if _, ok := m.workers.Load(args.WId); !ok && args.WId < 0 {
-		count := atomic.AddInt32(&m.count, 1)
 		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), utils.New(1), On, count}
 		m.workers.Store(count, &we)
+		atomic.AddInt32(&m.workerCount, 1)
 		log.Printf("master.workers : %v\n", m.workers)
 		go m.checkMRWorkerAlive(&we) // MRWorker 注册成功，监听心跳
 		//args.WId = count
@@ -141,16 +149,27 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 // 处理 MRWorker 发送过来的心跳
 func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 	// 向 WorkerElement 的心跳监听队列发送 Pong
-	log.Println(" Master receive MRWorker' heartbeat")
+
 	we, err := m.getWorkerElementById(args.WId)
 	if err != nil {
 		fmt.Printf("%v: %v\n", args.WId, err)
+		reply.State = Off
 		return err
 	}
+	log.Printf(" Master receive MRWorker' heartbeat: %v\n", we)
 	// 处理心跳带来的消息
 	we.Lock()
 	reply.State = we.wState
 	we.UnLock()
+
+	// 检查任务是否完成
+	if atomic.LoadInt32(&m.complete) == 1 {
+		go we.sendSign(End)
+		reply.WTask = &ExitTask{}
+		atomic.AddInt32(&m.workerCount, -1)
+		log.Println("done")
+		return nil
+	}
 	if reply.State == On {
 		go we.sendSign(Pong)
 		// 处理已经完成的任务
@@ -179,6 +198,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 	} else {
 		go we.sendSign(End)
 	}
+	log.Println(" heartbeat is ok")
 	return nil
 
 }
@@ -192,9 +212,11 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				return
 			}
 		} else {
+			// unregister
 			// 超时处理， 把 MRWorker 下线，并且将未完成和出错的任务进行重新分配
 			m.workers.Delete(we.id) // 将 MRWorker 从列表删除
-			log.Println(m.workers.Load(we.id))
+			atomic.AddInt32(&m.workerCount, -1)
+			log.Printf("this MRWorker has fail : %v", we)
 			we.Lock()
 			we.wState = Off // 把 MRWorker 下线，并且将任务进行重新分配
 			mlist := we.ownMapElements
@@ -260,8 +282,11 @@ func (m *Master) init(files []string) {
 	m.mapElements = &sync.Map{}
 	m.reduceElements = &sync.Map{}
 	m.workers = &sync.Map{}
+	m.workerCount = 0
+	m.complete = 0
 	gob.Register(&MapTask{})
 	gob.Register(&ReduceTask{})
+	gob.Register(&ExitTask{})
 	for i, file := range files {
 		me := MapElement{Element: Element{MLock{sync.Mutex{}}, Idle, i}, infile: file}
 		me.outfile = me.BuildFileNames(m)
@@ -302,11 +327,12 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
 
-	// Your code here.
+	if atomic.LoadInt32(&m.complete) == 1 && atomic.LoadInt32(&m.workerCount) == 0 {
+		return true
+	}
 
-	return ret
+	return false
 }
 
 //

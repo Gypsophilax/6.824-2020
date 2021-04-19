@@ -105,7 +105,7 @@ func (rt *ReduceTask) DealDoneTask(m *Master) error {
 		defer re.UnLock()
 		re.state = Complete
 		if atomic.AddInt32(&m.doneReduceTaskCount, 1) == int32(m.nReduce) {
-			// todo 退出程序的操作
+			atomic.StoreInt32(&m.complete, 1)
 			log.Println(" should exit")
 		}
 
@@ -162,7 +162,7 @@ func (rt *ReduceTask) DoTask(w *MRWorker) error {
 		os.Remove(name) // ?
 	}
 	err = os.Rename(name, rt.OutFile)
-	fmt.Printf("successfully create map_out infile: %v %v\n", name, rt.OutFile)
+	fmt.Printf("successfully create reduce_out : %v %v\n", name, rt.OutFile)
 	return nil
 }
 
@@ -180,5 +180,5 @@ func (rt *ReduceTask) ChangeState(m *Master, state State) error {
 		return nil
 	}
 	_ = m.taskQueue.PutNoWait(rt)
-	return errors.New(" error change  ReduceElement's state to ")
+	return errors.New(" error change  ReduceElement's state ")
 }

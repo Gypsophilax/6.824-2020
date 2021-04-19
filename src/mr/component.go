@@ -1,6 +1,9 @@
 package mr
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 // worker 的状态
 const (
@@ -8,7 +11,7 @@ const (
 	Progress State = 1
 	Complete State = 2
 
-	WaitTimeForEmpty time.Duration = time.Second * 3
+	WaitTimeForEmpty time.Duration = time.Second
 )
 const (
 	MapFilePrefix    string = "mr-"
@@ -55,3 +58,20 @@ type ByKey []KeyValue
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
+type ExitTask struct {
+}
+
+func (e *ExitTask) GetFileName() string {
+	panic("implement me")
+}
+
+func (e *ExitTask) DoTask(w *MRWorker) error {
+	// todo 完成任务 退出
+	os.Exit(0)
+	return nil
+}
+
+func (e *ExitTask) TransToMTask() IMasterTask {
+	panic("implement me")
+}

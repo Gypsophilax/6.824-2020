@@ -4,6 +4,7 @@ import (
 	"../utils"
 	"encoding/gob"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 )
@@ -88,6 +89,7 @@ func (w *MRWorker) init(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	gob.Register(&MapTask{})
 	gob.Register(&ReduceTask{})
+	gob.Register(&ExitTask{})
 	w.todoTask = utils.New(0)
 	w.doingTask = utils.New(0)
 	w.doneTask = utils.New(0)
@@ -156,9 +158,11 @@ func (w *MRWorker) sendHeartbeat() {
 		reply := HeartbeatReply{}
 		call("Master.Heartbeat", &args, &reply)
 		if reply.State == Off {
-			// todo 说明 MRWorker 已经被 Master 认定为下线
+			// 说明 MRWorker 已经被 Master 认定为下线
 			//_ = w.Register()
-			break
+			log.Println("Master thinks this MRWorker has been fail")
+			os.Exit(0)
+			//break
 		}
 
 		dtask := reply.DoneTask
@@ -173,7 +177,7 @@ func (w *MRWorker) sendHeartbeat() {
 		if reply.WTask != nil {
 			_ = w.todoTask.PutNoWait(reply.WTask)
 		}
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second)
 	}
 }
 
