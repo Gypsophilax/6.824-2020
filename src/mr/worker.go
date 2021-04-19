@@ -87,6 +87,7 @@ func CallExample() {
 func (w *MRWorker) init(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	gob.Register(&MapTask{})
+	gob.Register(&ReduceTask{})
 	w.todoTask = utils.New(0)
 	w.doingTask = utils.New(0)
 	w.doneTask = utils.New(0)
@@ -110,6 +111,7 @@ func (w *MRWorker) Register() error {
 	}
 	//  如果有任务分配就放到 todoTask 中
 	if reply.WTask != nil {
+		log.Printf("registe task : %v\n", reply.WTask)
 		_ = w.todoTask.PutNoWait(reply.WTask)
 	}
 	return nil
@@ -117,23 +119,23 @@ func (w *MRWorker) Register() error {
 
 // 循环从队列中获取任务并完成任务
 func (w *MRWorker) doMTask() {
-	//for true {
-	if task, err := w.todoTask.GetNoWait(); err == nil {
-		wTask := task.(IWorkerTask)
-		_ = w.doingTask.PutNoWait(wTask)
-		err = wTask.DoTask(w)
-		if err != nil { // 如果 error != nil ，应该重试然后向master报告
-			_ = fmt.Errorf("DoTasker %v", err)
-			_ = w.errTask.PutNoWait(task)
-			//break
+	for true {
+		if task, err := w.todoTask.GetNoWait(); err == nil {
+			wTask := task.(IWorkerTask)
+			_ = w.doingTask.PutNoWait(wTask)
+			err = wTask.DoTask(w)
+			if err != nil { // 如果 error != nil ，应该重试然后向master报告
+				_ = fmt.Errorf("DoTasker %v", err)
+				_ = w.errTask.PutNoWait(task)
+				//break
+			} else {
+				// 向 Master 报告任务完成
+				_ = w.doneTask.PutNoWait(task)
+			}
 		} else {
-			// 向 Master 报告任务完成
-			_ = w.doneTask.PutNoWait(task)
+			time.Sleep(WaitTimeForEmpty)
 		}
-	} else {
-		time.Sleep(WaitTimeForEmpty)
 	}
-	//}
 }
 
 // 向 Master 发送心跳

@@ -20,6 +20,7 @@ type MapTask struct {
 }
 
 func (mt *MapTask) DoTask(w *MRWorker) error {
+	log.Printf("worker deals MapTask :%v", *mt)
 	filename := mt.InFile
 	intermediate := make([][]KeyValue, len(mt.OutFile))
 	inFile, err := os.Open(filename)
@@ -84,10 +85,11 @@ func (mt *MapTask) ChangeElementAndTaskState(m *Master, oldstate State, newstate
 
 // 将 MapElement 添加到 taskQueue
 func (mt *MapTask) DealErrorTask(m *Master, workerid int32) error {
+	log.Printf("failure mapTask :%v\n", *mt)
 	err := mt.ChangeElementAndTaskState(m, Progress, Idle)
 	worker, ok := m.workers.Load(workerid)
 	me, o := m.mapElements.Load(mt.InFile)
-	// todo 解绑
+	// 解绑
 	if ok && o {
 		worker := worker.(*WorkerElement)
 		worker.Lock()
@@ -150,6 +152,7 @@ func (mt *MapTask) TransToMTask() IMasterTask {
 
 // MapTask 被完成的时候进行的操作
 func (mt *MapTask) DealDoneTask(m *Master) error {
+	log.Printf("successful mapTask :%v\n", *mt)
 	var err error
 	if me, ok := m.mapElements.Load(mt.InFile); ok {
 		me := me.(*MapElement)
@@ -159,6 +162,7 @@ func (mt *MapTask) DealDoneTask(m *Master) error {
 		me.state = Complete
 		if atomic.AddInt32(&m.doneMapTaskCount, 1) == int32(m.nMap) {
 			// todo 生成 ReduceTask
+			log.Println("create reduceTask")
 			m.initReduce()
 		}
 

@@ -94,6 +94,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 		count := atomic.AddInt32(&m.count, 1)
 		we := WorkerElement{MLock{sync.Mutex{}}, list.New(), list.New(), utils.New(1), On, count}
 		m.workers.Store(count, &we)
+		log.Printf("master.workers : %v\n", m.workers)
 		go m.checkMRWorkerAlive(&we) // MRWorker 注册成功，监听心跳
 		//args.WId = count
 		reply.WId = count
@@ -104,7 +105,7 @@ func (m *Master) Register(args *RegisterArgs, reply *RegisterReply) error {
 	// 是否有已经存在的 IMasterTask 分配给 MRWorker
 	err, task := m.getAndBindTask(reply.WId)
 	if err != nil {
-		log.Fatal(err)
+		log.Println("taskQueue is empty")
 		return err
 	}
 	reply.WTask = task
@@ -146,8 +147,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 		// 如果还有任务就交给worker去做
 		err, task := m.getAndBindTask(args.WId)
 		if err != nil {
-			log.Fatal(err)
-			return err
+			log.Println("taskQueue is empty")
 		}
 		reply.WTask = task
 	} else {
@@ -235,6 +235,7 @@ func (m *Master) init(files []string) {
 	m.reduceElements = &sync.Map{}
 	m.workers = &sync.Map{}
 	gob.Register(&MapTask{})
+	gob.Register(&ReduceTask{})
 	for i, file := range files {
 		mapTask := MapTask{InFile: file, Number: i}
 		mapTask.OutFile = mapTask.BuildFileNames(m)
@@ -246,7 +247,7 @@ func (m *Master) init(files []string) {
 // MapTask 已经完成
 func (m *Master) initReduce() {
 	for i := 0; i < m.nReduce; i++ {
-		reduceTask := ReduceTask{Number: i, OutFile: ReduceFilePrefix + strconv.Itoa(i)}
+		reduceTask := ReduceTask{Number: i, OutFile: ReduceFilePrefix + strconv.Itoa(i) + ".txt"}
 		reduceTask.InFile = reduceTask.BuildFileNames(m)
 		m.reduceElements.Store(reduceTask.OutFile, &ReduceElement{Element{MLock{sync.Mutex{}}, Idle, i}, reduceTask.InFile})
 		_ = m.taskQueue.PutNoWait(&reduceTask)
