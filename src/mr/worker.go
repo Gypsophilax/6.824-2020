@@ -4,6 +4,7 @@ import (
 	"../utils"
 	"encoding/gob"
 	"fmt"
+	"os"
 	"sync/atomic"
 	"time"
 )
@@ -20,8 +21,10 @@ type KeyValue struct {
 }
 
 type MRWorker struct {
-	task      *Task
-	taskQueue *utils.Queue // linkedList
+	todoTask  *utils.Queue // 未处理的 IWorkerTask
+	doingTask *utils.Queue // MRWorker 负责的 IWorkerTask
+	doneTask  *utils.Queue
+	errTask   *utils.Queue
 	id        int32
 	mapf      func(string, string) []KeyValue
 	reducef   func(string, []string) string
@@ -47,13 +50,14 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the master.
 	w := new(MRWorker)
-	w.init()
+	w.init(mapf, reducef)
 	err := w.Register()
-	go w.doTasker()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
+	go w.sendHeartbeat()
+	w.doMTask()
 
 }
 
@@ -81,38 +85,99 @@ func CallExample() {
 }
 
 // 初始化 MRWorker
-func (w *MRWorker) init() {
+func (w *MRWorker) init(mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string) {
 	gob.Register(&MapTask{})
-	w.taskQueue = utils.New(0)
+	gob.Register(&ReduceTask{})
+	gob.Register(&ExitTask{})
+	w.todoTask = utils.New(0)
+	w.doingTask = utils.New(0)
+	w.doneTask = utils.New(0)
+	w.errTask = utils.New(0)
 	w.id = -1
+	w.mapf = mapf
+	w.reducef = reducef
 }
 
-// MRWorker 初次向 Master 注册，可能会返回 Tasker
+// MRWorker 初次向 Master 注册，可能会返回 IMasterTask
 func (w *MRWorker) Register() error {
-	args := RegisterArgs{}
+	args := RegisterArgs{WId: w.id}
 	reply := RegisterReply{}
-	for atomic.LoadInt32(&w.id) < 0 {
+	for args.WId = atomic.LoadInt32(&w.id); args.WId < 0; args.WId = atomic.LoadInt32(&w.id) {
 		if call("Master.Register", &args, &reply) {
-			atomic.CompareAndSwapInt32(&w.id, -1, reply.Id)
+			atomic.CompareAndSwapInt32(&w.id, -1, reply.WId)
 		} else {
 			time.Sleep(time.Second)
 		}
 
 	}
-	//  如果有任务分配就放到 taskQueue 中
-	if reply.WTasker != nil {
-		return w.taskQueue.PutNoWait(reply.WTasker)
+	//  如果有任务分配就放到 todoTask 中
+	if reply.WTask != nil {
+		log.Printf("registe task : %v\n", reply.WTask)
+		_ = w.todoTask.PutNoWait(reply.WTask)
 	}
 	return nil
 }
 
 // 循环从队列中获取任务并完成任务
-func (w *MRWorker) doTasker() {
+func (w *MRWorker) doMTask() {
 	for true {
-		if task, err := w.taskQueue.GetNoWait(); err == nil {
-			tasker := task.(Tasker)
-			tasker.DoTask(w) // todo 如果 error != nil ，应该重试然后向master报告
+		if task, err := w.todoTask.GetNoWait(); err == nil {
+			wTask := task.(IWorkerTask)
+			_ = w.doingTask.PutNoWait(wTask)
+			err = wTask.DoTask(w)
+			if err != nil { // 如果 error != nil ，应该重试然后向master报告
+				_ = fmt.Errorf("DoTasker %v", err)
+				_ = w.errTask.PutNoWait(task)
+				//break
+			} else {
+				// 向 Master 报告任务完成
+				_ = w.doneTask.PutNoWait(task)
+			}
+		} else {
+			time.Sleep(WaitTimeForEmpty)
 		}
+	}
+}
+
+// 向 Master 发送心跳
+func (w *MRWorker) sendHeartbeat() {
+	for true {
+		log.Println(" MRWorker send Master heartbeat")
+		args := HeartbeatArgs{WId: w.id}
+		doneTask := w.doneTask.GetAll()
+		errTask := w.errTask.GetAll()
+		for i := range doneTask {
+			dtask := doneTask[i].(IMasterTask)
+			args.DoneTask = append(args.DoneTask, dtask)
+		}
+		for i := range errTask {
+			etask := errTask[i].(IMasterTask)
+			args.ErrTask = append(args.ErrTask, etask)
+		}
+		reply := HeartbeatReply{}
+		call("Master.Heartbeat", &args, &reply)
+		if reply.State == Off {
+			// 说明 MRWorker 已经被 Master 认定为下线
+			//_ = w.Register()
+			log.Println("Master thinks this MRWorker has been fail")
+			os.Exit(0)
+			//break
+		}
+
+		dtask := reply.DoneTask
+		for i := range dtask {
+			w.doneTask.PutNoWait(dtask[i])
+		}
+		etask := reply.ErrTask
+		for i := range etask {
+			w.errTask.PutNoWait(etask[i])
+		}
+		//  如果有任务分配就放到 todoTask 中
+		if reply.WTask != nil {
+			_ = w.todoTask.PutNoWait(reply.WTask)
+		}
+		time.Sleep(time.Second)
 	}
 }
 

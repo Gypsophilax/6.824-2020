@@ -226,3 +226,12 @@ func (q *Queue) IsFull() bool {
 	defer q.mutex.Unlock()
 	return q.isfull()
 }
+func (q *Queue) GetAll() []interface{} {
+
+	var val []interface{}
+	for size := q.Size(); size > 0; size-- {
+		v, _ := q.Get(-1)
+		val = append(val, v)
+	}
+	return val
+}
