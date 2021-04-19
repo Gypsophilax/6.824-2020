@@ -61,7 +61,7 @@ func (mt *MapTask) DoTask(w *MRWorker) error {
 		}
 		// 3. 重命名临时文件
 		err = os.Rename(name, mt.OutFile[i])
-		fmt.Printf("successfully create map_out file: %v %v\n", name, mt.OutFile[i])
+		fmt.Printf("successfully create map_out infile: %v %v\n", name, mt.OutFile[i])
 	}
 
 	return nil
@@ -87,23 +87,23 @@ func (mt *MapTask) ChangeElementAndTaskState(m *Master, oldstate State, newstate
 func (mt *MapTask) DealErrorTask(m *Master, workerid int32) error {
 	log.Printf("failure mapTask :%v\n", *mt)
 	err := mt.ChangeElementAndTaskState(m, Progress, Idle)
-	worker, ok := m.workers.Load(workerid)
+	we, ok := m.workers.Load(workerid)
 	me, o := m.mapElements.Load(mt.InFile)
 	// 解绑
 	if ok && o {
-		worker := worker.(*WorkerElement)
-		worker.Lock()
-		defer worker.UnLock()
+		we := we.(*WorkerElement)
+		we.Lock()
+		defer we.UnLock()
 		me := me.(*MapElement)
 		me.Lock()
 		defer me.UnLock()
 		var del *list.Element
-		for del = worker.ownMapElements.Front(); del != nil; del = del.Next() {
+		for del = we.ownMapElements.Front(); del != nil; del = del.Next() {
 			if del.Value.(*MapElement).id == me.id {
 				break
 			}
 		}
-		worker.ownMapElements.Remove(del)
+		we.ownMapElements.Remove(del)
 	}
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (mt *MapTask) BuildFileNames(m *Master) []string {
 	var filenames []string
 	s := MapFilePrefix + strconv.Itoa(mt.Number) + "-"
 	for i := 0; i < m.nReduce; i++ {
-		filenames = append(filenames, s+strconv.Itoa(i)+FileSuffix)
+		filenames = append(filenames, s+strconv.Itoa(i))
 	}
 	return filenames
 }
@@ -156,12 +156,11 @@ func (mt *MapTask) DealDoneTask(m *Master) error {
 	var err error
 	if me, ok := m.mapElements.Load(mt.InFile); ok {
 		me := me.(*MapElement)
-		// todo 创建 ReduceElement
 		me.Lock()
 		defer me.UnLock()
 		me.state = Complete
 		if atomic.AddInt32(&m.doneMapTaskCount, 1) == int32(m.nMap) {
-			// todo 生成 ReduceTask
+			// 生成 ReduceTask
 			log.Println("create reduceTask")
 			m.initReduce()
 		}

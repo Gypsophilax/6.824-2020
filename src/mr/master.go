@@ -38,15 +38,41 @@ func (l *MLock) UnLock() {
 // MapTaskElement
 type MapElement struct {
 	Element
-	file string
+	infile  string
+	outfile []string
 	//reduceElement []*ReduceElement
+}
+
+func (me *MapElement) BuildFileNames(m *Master) []string {
+	var filenames []string
+	s := MapFilePrefix + strconv.Itoa(me.id) + "-"
+	for i := 0; i < m.nReduce; i++ {
+		filenames = append(filenames, s+strconv.Itoa(i))
+	}
+	return filenames
+}
+func (me *MapElement) BuildTask() *MapTask {
+	return &MapTask{me.id, me.infile, me.outfile}
 }
 
 // ReduceTaskElement
 type ReduceElement struct {
 	Element
-	file []string
+	infile  []string
+	outfile string
 	//mapElement *MapElement
+}
+
+func (re *ReduceElement) BuildFileNames(m *Master) []string {
+	var filenames []string
+	for i := 0; i < m.nMap; i++ {
+		filenames = append(filenames, MapFilePrefix+strconv.Itoa(i)+"-"+strconv.Itoa(re.id))
+	}
+	return filenames
+}
+
+func (re *ReduceElement) BuildTask() *ReduceTask {
+	return &ReduceTask{re.id, re.infile, re.outfile}
 }
 
 type WorkerElement struct { // Master 维护的 MRWorker 数据
@@ -118,7 +144,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 	log.Println(" Master receive MRWorker' heartbeat")
 	we, err := m.getWorkerElementById(args.WId)
 	if err != nil {
-		fmt.Printf("%v: %v", args.WId, err)
+		fmt.Printf("%v: %v\n", args.WId, err)
 		return err
 	}
 	// 处理心跳带来的消息
@@ -126,7 +152,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 	reply.State = we.wState
 	we.UnLock()
 	if reply.State == On {
-		we.sendSign(Pong)
+		go we.sendSign(Pong)
 		// 处理已经完成的任务
 		tasks := args.DoneTask
 		for i := range tasks {
@@ -151,7 +177,7 @@ func (m *Master) Heartbeat(args *HeartbeatArgs, reply *HeartbeatReply) error {
 		}
 		reply.WTask = task
 	} else {
-		we.sendSign(End)
+		go we.sendSign(End)
 	}
 	return nil
 
@@ -162,11 +188,13 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 	for true {
 		if val, err := we.alive.Get(time.Second * 10); err == nil {
 			val = val.(HT)
-			if val == End {
+			if val == End { // 说明这个 MRWorker 已经下线
 				return
 			}
 		} else {
-			// 超时处理， 把 MRWorker 下线，并且将任务进行重新分配
+			// 超时处理， 把 MRWorker 下线，并且将未完成和出错的任务进行重新分配
+			m.workers.Delete(we.id) // 将 MRWorker 从列表删除
+			log.Println(m.workers.Load(we.id))
 			we.Lock()
 			we.wState = Off // 把 MRWorker 下线，并且将任务进行重新分配
 			mlist := we.ownMapElements
@@ -178,8 +206,7 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				me := i.Value.(*MapElement)
 				me.Lock()
 				if me.state != Complete {
-					task := MapTask{Number: me.id, InFile: me.file}
-					_ = m.taskQueue.PutNoWait(&task)
+					_ = m.taskQueue.PutNoWait(me.BuildTask())
 					me.state = Idle
 				}
 				me.UnLock()
@@ -188,8 +215,7 @@ func (m *Master) checkMRWorkerAlive(we *WorkerElement) {
 				re := i.Value.(*ReduceElement)
 				re.Lock()
 				if re.state != Complete {
-					task := ReduceTask{Number: re.id, InFile: re.file}
-					_ = m.taskQueue.PutNoWait(&task)
+					_ = m.taskQueue.PutNoWait(re.BuildTask())
 					re.state = Idle
 				}
 				re.UnLock()
@@ -237,20 +263,21 @@ func (m *Master) init(files []string) {
 	gob.Register(&MapTask{})
 	gob.Register(&ReduceTask{})
 	for i, file := range files {
-		mapTask := MapTask{InFile: file, Number: i}
-		mapTask.OutFile = mapTask.BuildFileNames(m)
-		m.mapElements.Store(file, &MapElement{Element{MLock{sync.Mutex{}}, Idle, i}, file})
-		_ = m.taskQueue.PutNoWait(&mapTask)
+		me := MapElement{Element: Element{MLock{sync.Mutex{}}, Idle, i}, infile: file}
+		me.outfile = me.BuildFileNames(m)
+		m.mapElements.Store(me.infile, &me)
+		_ = m.taskQueue.PutNoWait(me.BuildTask())
 	}
 }
 
 // MapTask 已经完成
 func (m *Master) initReduce() {
 	for i := 0; i < m.nReduce; i++ {
-		reduceTask := ReduceTask{Number: i, OutFile: ReduceFilePrefix + strconv.Itoa(i) + ".txt"}
-		reduceTask.InFile = reduceTask.BuildFileNames(m)
-		m.reduceElements.Store(reduceTask.OutFile, &ReduceElement{Element{MLock{sync.Mutex{}}, Idle, i}, reduceTask.InFile})
-		_ = m.taskQueue.PutNoWait(&reduceTask)
+
+		re := ReduceElement{Element: Element{MLock{sync.Mutex{}}, Idle, i}, outfile: ReduceFilePrefix + strconv.Itoa(i)}
+		re.infile = re.BuildFileNames(m)
+		m.reduceElements.Store(re.outfile, &re)
+		_ = m.taskQueue.PutNoWait(re.BuildTask())
 	}
 }
 

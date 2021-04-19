@@ -60,7 +60,7 @@ func (rt *ReduceTask) TransToWTask() IWorkerTask {
 func (rt *ReduceTask) BuildFileNames(m *Master) []string {
 	var filenames []string
 	for i := 0; i < m.nMap; i++ {
-		filenames = append(filenames, MapFilePrefix+strconv.Itoa(i)+"-"+strconv.Itoa(rt.Number)+".txt")
+		filenames = append(filenames, MapFilePrefix+strconv.Itoa(i)+"-"+strconv.Itoa(rt.Number))
 	}
 	return filenames
 }
@@ -68,22 +68,23 @@ func (rt *ReduceTask) BuildFileNames(m *Master) []string {
 func (rt *ReduceTask) DealErrorTask(m *Master, workerid int32) error {
 	log.Printf("failure reduceTask :%v\n", *rt)
 	err := rt.ChangeElementAndTaskState(m, Progress, Idle)
-	worker, ok := m.workers.Load(workerid)
-	we, o := m.reduceElements.Load(rt.OutFile)
+	we, ok := m.workers.Load(workerid)
+	re, o := m.reduceElements.Load(rt.OutFile)
 	if ok && o {
-		worker := worker.(*WorkerElement)
-		worker.Lock()
-		defer worker.UnLock()
-		we := we.(*ReduceElement)
+		we := we.(*WorkerElement)
 		we.Lock()
 		defer we.UnLock()
+		re := re.(*ReduceElement)
+		re.Lock()
+		defer re.UnLock()
 		var del *list.Element
-		for del = worker.ownReduceElements.Front(); del != nil; del = del.Next() {
-			if del.Value.(*ReduceElement).id == we.id {
+		for del = we.ownReduceElements.Front(); del != nil; del = del.Next() {
+			if del.Value.(*ReduceElement).id == re.id {
 				break
 			}
 		}
-		worker.ownReduceElements.Remove(del)
+		// 解除绑定
+		we.ownReduceElements.Remove(del)
 	}
 	if err != nil {
 		return err
@@ -158,10 +159,10 @@ func (rt *ReduceTask) DoTask(w *MRWorker) error {
 	name := tempFile.Name()
 	if err != nil {
 		log.Fatal(err)
-		_ = os.Remove(name) // ?
+		os.Remove(name) // ?
 	}
 	err = os.Rename(name, rt.OutFile)
-	fmt.Printf("successfully create map_out file: %v %v\n", name, rt.OutFile)
+	fmt.Printf("successfully create map_out infile: %v %v\n", name, rt.OutFile)
 	return nil
 }
 
