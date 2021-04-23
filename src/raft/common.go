@@ -5,17 +5,15 @@ import (
 	"time"
 )
 
-type State int
-
 const (
-	Leader    State = 0
-	Candidate State = 1
-	Follower  State = 2
+	Leader    int32 = 0
+	Candidate int32 = 1
+	Follower  int32 = 2
 )
 const (
-	ElectionTimeMin int64 = 250
-	ElectionTimeMax int64 = 400
-	HeartbeatTime   int   = 150
+	ElectionTimeMin int64         = 250
+	ElectionTimeMax int64         = 400
+	HeartbeatTime   time.Duration = time.Millisecond * 150
 )
 
 type LeaderState struct {
@@ -27,7 +25,7 @@ type electionChanSign struct {
 	Term int
 }
 
-// 获取随机时间
+// 获取随机时间 [250 - 400)
 func getRandTime() time.Duration {
 	return time.Duration((rand.Int63n(ElectionTimeMax-ElectionTimeMin) + ElectionTimeMin) * 1000 * 1000)
 }
