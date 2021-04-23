@@ -17,7 +17,10 @@ package raft
 //   in the same server.
 //
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 import "sync/atomic"
 import "../labrpc"
 
@@ -59,7 +62,7 @@ type Raft struct {
 
 	// Persistent state on all servers
 	currentTerm int
-	votedFor    int
+	votedFor    int // -1: 还没有vote
 	logs        []*LogEntry
 
 	// Volatile state on all servers
@@ -68,6 +71,10 @@ type Raft struct {
 
 	// todo Volatile state on leaders
 	leader *LeaderState
+
+	// leader election
+	electionChan        chan *electionChanSign
+	electionTimeoutChan chan int
 }
 
 // return currentTerm and whether this server
@@ -146,6 +153,7 @@ type AppendEntriesArgs struct {
 	PervLogIndex int
 	PervLogTerm  int
 	Entries      []*LogEntry
+	LeaderCommit int
 }
 
 type AppendEntriesReply struct {
@@ -159,6 +167,67 @@ type AppendEntriesReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	// todo 投票请求
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	lastLogIndex := len(rf.logs)
+	lastLogTerm := rf.logs[lastLogIndex-1].Term
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+		return
+	}
+	// args.Term >= rf.currentTerm && 不需要，与上述条件互斥
+	upToDate := checkLogUpToDate(lastLogIndex, lastLogTerm, args.LastLogIndex, args.LastLogTerm)
+	// Follower 只有在未投票并且Term比自己大，日志比自己新的情况下才会投票
+	// 如果Term小于自己当前Term，说明接收到了过期的投票信息，直接忽略
+	if rf.state == Follower && upToDate && (rf.votedFor == -1 || rf.votedFor == args.CandidateId) {
+		rf.votedFor = args.CandidateId
+		rf.currentTerm = args.Term
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = true
+		// todo 收到其他人的投票，重置选举超时
+		return
+	}
+	//
+	if (rf.state == Candidate || rf.state == Leader) && upToDate {
+		rf.state = Follower
+		rf.votedFor = args.CandidateId
+		rf.currentTerm = args.Term
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = true
+		// todo 收到其他人的投票，重置选举超时
+		return
+	}
+
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	// Your code here (2A, 2B).
+	// todo 心跳或添加日志请求
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.currentTerm {
+		reply.Success = false
+		reply.Term = rf.currentTerm
+		return
+	}
+
+	if entry := rf.logs[args.PervLogIndex]; entry == nil || entry.Term != args.PervLogTerm {
+		reply.Success = false
+		reply.Term = rf.currentTerm
+		// todo 重置选举时间
+		return
+	}
+	nextIndex := args.PervLogIndex + 1
+	if entry := rf.logs[nextIndex]; entry != nil && entry.Term != args.Term {
+		// todo 重置选举时间
+		rf.logs = append(rf.logs[:nextIndex])
+	}
+	rf.logs = append(rf.logs, args.Entries...)
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, len(rf.logs))
+	}
+
 }
 
 //
@@ -197,7 +266,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 // Send AppendEntries to peer
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
 
@@ -246,6 +315,30 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// 初始化 Raft
+func (rf *Raft) init(peers []*labrpc.ClientEnd, me int,
+	persister *Persister, applyCh chan ApplyMsg) {
+	rf.peers = peers
+	rf.persister = persister
+	rf.me = me
+
+	rf.state = Follower
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.logs = make([]*LogEntry, 0)
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+}
+
+// todo leader 选举 loop
+func (rf *Raft) leaderElection() {
+	for !rf.killed() {
+		time.Sleep(getRandTime())
+		// 检查是否应该发送 vote 请求
+	}
+
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -260,12 +353,10 @@ func (rf *Raft) killed() bool {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
-	rf.peers = peers
-	rf.persister = persister
-	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
 	// todo init raft
+	rf.init(peers, me, persister, applyCh)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
