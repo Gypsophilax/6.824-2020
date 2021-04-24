@@ -220,7 +220,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	// Your code here (2A, 2B).
-	// todo 处理心跳或添加日志请求
+	// 处理心跳或添加日志请求
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	reply.Term = rf.currentTerm
@@ -349,7 +349,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term = rf.currentTerm
 	isLeader = rf.state == Leader
 	if isLeader && !rf.killed() {
-		// todo 追加日志
+		// 追加日志
 		DPrintf("term: %v,start %v receive command : %v", term, rf.me, command)
 		rf.logs = append(rf.logs, &LogEntry{term, command})
 		rf.leader.matchIndex[rf.me]++
@@ -358,7 +358,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return index, term, isLeader
 }
 
-// todo leader 添加log
+// leader 添加log
 func (rf *Raft) leaderAppendLog(command interface{}) {
 	//if rf.state == Leader {
 	//	//rf.electionTimer.Reset(getRandTime()) appendEntriesLoop会重置选举超时
@@ -519,7 +519,7 @@ func (rf *Raft) becomeLeader() {
 
 }
 
-// todo 定时发送 AppendEntries
+// 定时发送 AppendEntries
 func (rf *Raft) appendEntriesLoop() {
 	for !rf.killed() && atomic.LoadInt32(&rf.state) == Leader {
 		rf.mu.Lock()
@@ -563,7 +563,7 @@ func (rf *Raft) doSendAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, l
 			DPrintf("term: %v,%v receive  %v's appendEntries reply %v", term, leaderId, server, reply)
 			if !reply.Success {
 				if reply.ConflictLogIndex != 0 && reply.ConflictLogTerm != 0 {
-					//  todo 加速 nextIndex
+					//  加速 nextIndex
 					leaderConflictTerm := rf.logs[reply.ConflictLogIndex].Term
 					if leaderConflictTerm == reply.ConflictLogTerm {
 						rf.leader.nextIndex[server] = reply.ConflictLogIndex + 1
@@ -575,7 +575,7 @@ func (rf *Raft) doSendAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, l
 				rf.leader.matchIndex[server] = prevLogIndex + len(entries)
 				rf.leader.nextIndex[server] = rf.leader.matchIndex[server] + 1
 				DPrintf("leader update %v's matchIndex %v and nextIndex %v", server, rf.leader.matchIndex[server], rf.leader.nextIndex[server])
-				//atomic.StoreInt64(nextCommitIndex, int64(max(int(*nextCommitIndex), rf.leader.matchIndex[server]))) // todo  update commitIndex is
+				//atomic.StoreInt64(nextCommitIndex, int64(max(int(*nextCommitIndex), rf.leader.matchIndex[server]))) //   update commitIndex is
 				// update commitIndex
 				peerSize := len(rf.leader.matchIndex)
 				matchIndex := make([]int, peerSize)
