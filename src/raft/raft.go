@@ -69,12 +69,11 @@ type Raft struct {
 	commitIndex int
 	lastApplied int
 
-	// todo Volatile state on leaders
+	// Volatile state on leaders
 	leader *LeaderState
 
 	// leader election
-	electionChan  chan *electionChanSign // 选举超时 channel
-	electionTimer *time.Timer            // 选举超时 Timer
+	electionTimer *time.Timer // 选举超时 Timer
 }
 
 // return currentTerm and whether this server
@@ -171,7 +170,7 @@ type AppendEntriesReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	// todo 处理投票请求
+	// 处理投票请求
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	lastLogIndex := len(rf.logs)
@@ -385,7 +384,7 @@ func (rf *Raft) electionLoop() {
 		peerSize := len(rf.peers)
 		DPrintf("term: %v, %v begin leader election,majority is %v", term, me, (peerSize+1)>>1)
 		rf.mu.Unlock()
-		// todo 进行选举
+		// 进行选举
 		var voteCount int64 = 1
 		for i := 0; i < peerSize; i++ {
 			if i == me {
@@ -517,7 +516,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf := &Raft{}
 
 	// Your initialization code here (2A, 2B, 2C).
-	// todo init raft
+	// init raft
 	rf.init(peers, me, persister, applyCh)
 	go rf.electionLoop()
 	DPrintf("Raft init success")
