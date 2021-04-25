@@ -11,9 +11,9 @@ const (
 	Follower  int32 = 2
 )
 const (
-	ElectionTimeMin int64         = 250
-	ElectionTimeMax int64         = 400
-	HeartbeatTime   time.Duration = time.Millisecond * 150
+	ElectionTimeMin int64         = 170
+	ElectionTimeMax int64         = 320
+	HeartbeatTime   time.Duration = time.Millisecond * 110
 )
 
 type LeaderState struct {
