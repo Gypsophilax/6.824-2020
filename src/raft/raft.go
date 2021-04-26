@@ -118,7 +118,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.votedFor)
 	//e.Encode(rf.notDiscardCount)
 	e.Encode(rf.logs)
-	DPrintf("%v's persist state: term %v,votedFor %v,logs %v", rf.me, rf.currentTerm, rf.votedFor, len(rf.logs))
+	DPrintf("%v's persist state: term %v,votedFor %v,logSize %v", rf.me, rf.currentTerm, rf.votedFor, len(rf.logs))
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -214,11 +214,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if lastLogIndex > 0 {
 		lastLogTerm = rf.logs[lastLogIndex-1].Term
 	}
-
+	DPrintf("%v receive RequestVote {term %v,state %v,votedFor %v,lastLogIndex %v,lastLogTerm %v} {args %v}",
+		rf.me, rf.currentTerm, rf.state, rf.votedFor, lastLogIndex, lastLogTerm, args)
+	defer DPrintf("%v reply ReuestVote {reply}", reply)
 	reply.Term = rf.currentTerm
 	reply.VoteGranted = false
-	DPrintf("%v {term %v,state %v,votedFor %v,lastLogIndex %v,lastLogTerm %v}receive  RequestVote %v",
-		rf.currentTerm, rf.state, rf.votedFor, lastLogIndex, lastLogTerm, rf.me, args)
+	//DPrintf("%v {term %v,state %v,votedFor %v,lastLogIndex %v,lastLogTerm %v}receive  RequestVote %v",
+	//	rf.me,rf.currentTerm, rf.state, rf.votedFor, lastLogIndex, lastLogTerm, args)
 	if args.Term < rf.currentTerm {
 		return
 	}
@@ -227,25 +229,21 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Follower 只有在未投票并且Term比自己大，日志比自己新的情况下才会投票
 	// 如果Term小于自己当前Term，说明接收到了过期的投票信息，直接忽略
 
-	if rf.state == Follower && args.Term == rf.currentTerm && (rf.votedFor == -1 || rf.votedFor == args.CandidateId) {
-		rf.electionTimer.Reset(getRandTime()) // 投票，重置选举超时
-		rf.votedFor = args.CandidateId
-		rf.persist()
-		reply.VoteGranted = true
-		return
-	}
 	// Candidate 和 Leader 回到 Follower
 	if args.Term > rf.currentTerm {
-		rf.electionTimer.Reset(getRandTime()) // 投票，重置选举超时
 		rf.state = Follower
 		rf.currentTerm = args.Term
 		rf.leader = nil
 		reply.Term = rf.currentTerm
-		if upToDate {
-			rf.votedFor = args.CandidateId
-			reply.VoteGranted = true
-		}
 		rf.persist()
+		return
+	}
+
+	if rf.state == Follower && (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && upToDate {
+		rf.electionTimer.Reset(getRandTime()) // 投票，重置选举超时
+		rf.votedFor = args.CandidateId
+		rf.persist()
+		reply.VoteGranted = true
 		return
 	}
 
@@ -570,6 +568,7 @@ func (rf *Raft) appendEntriesLoop() {
 
 		me := rf.me
 		leaderCommit := rf.commitIndex
+		DPrintf("%v's appendEntriesLoop {peerSize %v,nextIndex %v,matchIndex %v}", rf.me, rf.leader.nextIndex, rf.leader.matchIndex)
 		for i := 0; i < peerSize; i++ {
 			if i == me {
 				continue
