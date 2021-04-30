@@ -12,9 +12,9 @@ const (
 	Null      int   = -1
 )
 const (
-	ElectionTimeMin int64         = 150
-	ElectionTimeMax int64         = 300
-	HeartbeatTime   time.Duration = time.Millisecond * 50
+	ElectionTimeMin int64         = 300
+	ElectionTimeMax int64         = 450
+	HeartbeatTime   time.Duration = time.Millisecond * 150
 )
 
 type LeaderState struct {
