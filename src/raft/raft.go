@@ -79,6 +79,7 @@ type Raft struct {
 
 	// leader election
 	electionTimer *time.Timer // 选举超时 Timer
+	beginElection int32
 }
 
 // return currentTerm and whether this server
@@ -349,6 +350,7 @@ func (rf *Raft) convertToFollower(term int) {
 	rf.votedFor = Null
 	rf.persist()
 	rf.leader = nil
+	rf.beginElectionLoop()
 }
 
 func (rf *Raft) convertToCandidate() {
@@ -485,38 +487,50 @@ func (rf *Raft) init(peers []*labrpc.ClientEnd, me int,
 	rf.logs = make([]*LogEntry, 0)
 	rf.commitIndex = 0
 	rf.lastApplied = 0
+	rf.beginElection = 0
 	rf.applyCh = applyCh
 	rf.electionTimer = time.NewTimer(getRandTime())
 }
 
 // leader 选举 loop
 func (rf *Raft) electionLoop() {
+
 	for !rf.killed() {
 		<-rf.electionTimer.C // 说明选举超时触发
 		// 重置 electionTimer
 		rf.mu.Lock()
+		if rf.state == Leader {
+			DPrintf("%v is leader, shouldnt continue leader election", rf, rf.me)
+			rf.beginElection = 0
+			rf.mu.Unlock()
+			return
+		}
 		rf.electionTimer.Reset(getRandTime())
-		me := rf.me
-		// state change
-		DPrintf("%v {state %v} convert to candidate", rf, rf.me, rf.state)
-		rf.convertToCandidate()
-		term := rf.currentTerm
-		lastLogIndex := len(rf.logs)
-		lastLogTerm := 0
-		if lastLogIndex > 0 {
-			lastLogTerm = rf.logs[lastLogIndex-1].Term
-		}
-		peerSize := len(rf.peers)
-		DPrintf("%v begin term %v's leader election at time %v {majority %v, logSize %v}", rf, me, term, time.Now().UnixNano()/1e6, (peerSize+1)>>1, len(rf.logs))
-		// 进行选举
-		var voteCount int64 = 1
-		for i := 0; i < peerSize; i++ {
-			if i == me {
-				continue
+		go func() {
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
+			me := rf.me
+			// state change
+			DPrintf("%v {state %v} convert to candidate", rf, rf.me, rf.state)
+			rf.convertToCandidate()
+			term := rf.currentTerm
+			lastLogIndex := len(rf.logs)
+			lastLogTerm := 0
+			if lastLogIndex > 0 {
+				lastLogTerm = rf.logs[lastLogIndex-1].Term
 			}
-			DPrintf("%v call %v.RequestVote {args: term %v, lastLogIndex %v, lastLogTerm %v}", rf, me, i, term, lastLogIndex, lastLogTerm)
-			go rf.doElection(term, me, lastLogIndex, lastLogTerm, i, (peerSize+1)>>1, &voteCount)
-		}
+			peerSize := len(rf.peers)
+			DPrintf("%v begin term %v's leader election at time %v {majority %v, logSize %v}", rf, me, term, time.Now().UnixNano()/1e6, (peerSize+1)>>1, len(rf.logs))
+			// 进行选举
+			var voteCount int64 = 1
+			for i := 0; i < peerSize; i++ {
+				if i == me {
+					continue
+				}
+				DPrintf("%v call %v.RequestVote {args: term %v, lastLogIndex %v, lastLogTerm %v}", rf, me, i, term, lastLogIndex, lastLogTerm)
+				go rf.doElection(term, me, lastLogIndex, lastLogTerm, i, (peerSize+1)>>1, &voteCount)
+			}
+		}()
 		rf.mu.Unlock()
 
 	}
@@ -583,8 +597,7 @@ func (rf *Raft) appendEntriesLoop() {
 			rf.mu.Unlock()
 			return
 		}
-		rf.electionTimer.Reset(getRandTime())
-		DPrintf("%v reset electionTimer for it's own AppendEntriesLoop", rf, rf.me)
+		//DPrintf("%v reset electionTimer for it's own AppendEntriesLoop", rf, rf.me)
 		peerSize := len(rf.peers)
 		term := rf.currentTerm
 
@@ -622,7 +635,7 @@ func (rf *Raft) doSendAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, l
 	reply := AppendEntriesReply{}
 	if rf.sendAppendEntries(server, &args, &reply) {
 		rf.mu.Lock()
-		DPrintf("%v {currentTerm %v, state %v} receive  %v's AppendEntries reply {args %v, reply %v}", rf, rf.me, term, rf.state, server, args, reply)
+		DPrintf("%v {currentTerm %v, state %v} receive  %v's AppendEntries reply {args %v, reply %v}", rf, rf.me, rf.currentTerm, rf.state, server, args, reply)
 		if rf.currentTerm == term && rf.state == Leader {
 			if reply.Term > rf.currentTerm {
 				DPrintf("%v {state %v} convert to follower", rf, rf.me, rf.state)
@@ -704,6 +717,14 @@ func (rf *Raft) commitLoop() {
 	DPrintf("%v is dead", rf, rf.me)
 }
 
+func (rf *Raft) beginElectionLoop() {
+	if atomic.CompareAndSwapInt32(&rf.beginElection, 0, 1) {
+		DPrintf("%v beign leader election loop", rf, rf.me)
+		rf.electionTimer.Reset(getRandTime())
+		go rf.electionLoop()
+	}
+}
+
 //func (rf *Raft) updateCommitIndexLoop() {
 //	for !rf.killed() {
 //		rf.mu.Lock()
@@ -750,7 +771,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-	go rf.electionLoop()
+	rf.beginElectionLoop()
 	go rf.commitLoop()
 	//go rf.updateCommitIndexLoop()
 	DPrintf("Raft init success", rf)
