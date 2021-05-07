@@ -647,17 +647,17 @@ func (rf *Raft) doSendAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, l
 					if reply.ConflictLogTerm != Null {
 						DPrintf("%v log size is %v, receive %v's append conflict {conflict index %v, conflict term %v} {old nextIndex %v, matchIndex %v, new nextIndex %v} ",
 							rf, rf.me, len(rf.logs), server, reply.ConflictLogIndex, reply.ConflictLogTerm, rf.leader.nextIndex[server], rf.leader.matchIndex[server], rf.getConflictIndex(reply.ConflictLogTerm))
-						if rf.leader.matchIndex[server] >= rf.getConflictIndex(reply.ConflictLogTerm) {
-							DPrintf("This reply is passed {args %v, reply %v}", rf, args, reply)
+						if rf.leader.matchIndex[server] > rf.getConflictIndex(reply.ConflictLogTerm) {
+							DPrintf("This reply is passed {args %v, reply %v, matchIndex %v}", rf, args, reply, rf.leader.matchIndex[server])
 						} else {
 							rf.leader.nextIndex[server] = rf.getConflictIndex(reply.ConflictLogTerm)
 						} // 和matchIndex 取最大值？
 					} else {
 						// 慢速 nextIndex
 						DPrintf("This reply dont have conflictTerm", rf)
-						rf.leader.nextIndex[server] = reply.ConflictLogIndex
-						if rf.leader.matchIndex[server] >= reply.ConflictLogIndex {
-							DPrintf("This reply is passed {args %v, reply %v}", rf, args, reply)
+						//rf.leader.nextIndex[server] = reply.ConflictLogIndex 过时消息处理不当
+						if rf.leader.matchIndex[server] > reply.ConflictLogIndex {
+							DPrintf("This reply is passed {args %v, reply %v, matchIndex %v}", rf, args, reply, rf.leader.matchIndex[server])
 						} else {
 							rf.leader.nextIndex[server] = reply.ConflictLogIndex
 						} // 和matchIndex 取最大值？
