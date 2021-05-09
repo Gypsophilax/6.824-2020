@@ -5,7 +5,7 @@ import (
 )
 
 // Debugging
-const Debug = 1
+const Debug = 0
 
 func DPrintf(format string, rf *Raft, a ...interface{}) (n int, err error) {
 	if Debug > 0 && !rf.killed() {

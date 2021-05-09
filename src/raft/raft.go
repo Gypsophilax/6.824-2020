@@ -45,6 +45,8 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	LeaderId     int
+	Term         int
 }
 
 //
@@ -619,7 +621,7 @@ func (rf *Raft) appendEntriesLoop() {
 			if len(rf.logs) >= nextIndex {
 				entries = append(entries, rf.logs[prevLogIndex:]...)
 			}
-			DPrintf("Leader call %v.AppendEntries {args: term %v, leaderId %v, prevLogIndex %v, prevLogTerm %v, leaderCommit %v, logSize %v, appendSize %v}", rf, i, term, me, prevLogIndex, prevLogTerm, leaderCommit, len(rf.logs), len(entries))
+			DPrintf("Leader call %v.AppendEntries {args: term %v, leaderId %v, prevLogIndex %v, prevLogTerm %v, leaderCommit %v, logSize %v, appendSize %v, logs %v}", rf, i, term, me, prevLogIndex, prevLogTerm, leaderCommit, len(rf.logs), len(entries), entries)
 			go rf.doSendAppendEntries(term, me, prevLogIndex, prevLogTerm, leaderCommit, i, entries)
 		}
 
@@ -633,6 +635,7 @@ func (rf *Raft) doSendAppendEntries(term, leaderId, prevLogIndex, prevLogTerm, l
 	}
 	args := AppendEntriesArgs{term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit}
 	reply := AppendEntriesReply{}
+	DPrintf("Leader call %v.AppendEntries{args %v}", rf, server, &args)
 	if rf.sendAppendEntries(server, &args, &reply) {
 		rf.mu.Lock()
 		DPrintf("%v {currentTerm %v, state %v} receive  %v's AppendEntries reply {args %v, reply %v}", rf, rf.me, rf.currentTerm, rf.state, server, args, reply)
@@ -705,7 +708,10 @@ func (rf *Raft) commitLoop() {
 		for commitIndex >= nextApply {
 			entry := rf.logs[nextApply-1]
 			DPrintf("%v commit log to server in current term %v {command %v, index %v, term %v}", rf, rf.me, rf.currentTerm, entry.Command, nextApply, entry.Term)
-			rf.applyCh <- ApplyMsg{true, entry.Command, nextApply}
+			rf.mu.Lock()
+			term := rf.currentTerm
+			rf.mu.Unlock()
+			rf.applyCh <- ApplyMsg{true, entry.Command, nextApply, -1, term}
 			nextApply++
 		}
 		rf.mu.Lock()
