@@ -15,9 +15,12 @@ type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
 
-	leaderId     int // leader id on last time
-	clerkId      int // clerk's id
-	commandCount int
+	leaderId       int // leader id on last time
+	clerkId        int // clerk's id
+	commandIndex   int
+	lastReplyIndex int
+
+	cache map[string]string
 
 	mu sync.Mutex
 }
@@ -34,9 +37,10 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	// You'll have to add code here.
 
-	ck.leaderId = Null
+	ck.leaderId = int(nrand()) % len(ck.servers)
+	ck.cache = make(map[string]string)
 	ck.clerkId = int(atomic.AddInt64(&clerkIdCount, 1))
-	ck.commandCount = 0
+	ck.commandIndex = 0
 	return ck
 }
 
@@ -55,42 +59,52 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 	ck.mu.Lock()
 	defer ck.mu.Unlock()
-	ck.commandCount++
-	args := &GetArgs{key, ck.clerkId, ck.commandCount}
-	reply := &GetReply{}
-	var serverId int
-	result := ""
-	if ck.leaderId != Null {
-		serverId = ck.leaderId
-	} else {
-		serverId = int(nrand()) % len(ck.servers)
-	}
+	ck.commandIndex++
+	clerkId := ck.clerkId
+	commandIndex := ck.commandIndex
+	count := 1
 	for true {
-		CPrintf("Clerk %v call KVServer %v's Get {args %v, reply %v}", ck.clerkId, serverId, args, reply)
-
-		if ck.servers[serverId].Call("KVServer.Get", args, reply) {
-			// todo 处理 get 的返回结果
+		serverId := ck.leaderId
+		ch := make(chan *GetReply)
+		go ck.sendGet(key, clerkId, commandIndex, serverId, count, ch)
+		var reply *GetReply
+		select {
+		case reply = <-ch:
 			switch reply.Err {
-			case ErrWrongLeader:
-				if reply.LeaderId == Null || serverId == reply.LeaderId {
-					serverId = (serverId + 1) % len(ck.servers)
-				} else {
-					serverId = reply.LeaderId
-				}
-			case ErrNoKey:
-				break
-			case OK:
-				result = reply.Value
-				ck.leaderId = serverId
-				return result
-			case ErrNoTypeOpFound:
-				CPrintf("Clerk %v: KVServer %v can't deal this type Option 「args %v, reply %v」", ck.clerkId, serverId, args, reply)
-				return result
+			case ErrWrongLeader, Passed:
+				ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
+			case OK, ErrNoKey:
+				ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
+				return reply.Value
 			}
+		case <-time.After(time.Second):
+			CPrintf("Clerk %v's %v times %v.Get is timeout", clerkId, count, serverId)
+			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 		}
-		time.Sleep(10 * time.Millisecond)
+
+		count++
+		time.Sleep(100 * time.Millisecond)
+
 	}
-	return result
+	return ""
+}
+func (ck *Clerk) sendGet(key string, clerkId, commandIndex, serverId, count int, ch chan *GetReply) {
+	args := &GetArgs{key, clerkId, commandIndex, count}
+	reply := &GetReply{Times: count}
+	CPrintf("Clerk %v %v times call KVServer %v's Get {args %+v, reply %v}", ck.clerkId, count, serverId, args, reply)
+	if ck.servers[serverId].Call("KVServer.Get", args, reply) {
+		//  处理 get 的返回结果
+		CPrintf("Clerk %v receive KVServer %v's %v times Get reply {args %+v ,reply %v}", ck.clerkId, serverId, count, args, reply)
+		//if ck.lastReplyIndex >= commandIndex {
+		//	CPrintf("Clerk %v receive a passed Get reply {args %+v, reply %v}", ck.clerkId, args, reply)
+		//	return true, Null
+		//}
+
+	} else {
+		reply.Err = ErrWrongLeader
+		CPrintf("Clerk %v lost KVServer %v's %v times Get reply {commandIndex %v}", clerkId, serverId, count, commandIndex)
+	}
+	ch <- reply
 }
 
 //
@@ -108,38 +122,50 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 
 	ck.mu.Lock()
 	defer ck.mu.Unlock()
-	CPrintf("Clerk %v's PutAppend {key %v, value %v, op %v}", ck.clerkId, key, value, op)
-	ck.commandCount++
-	args := &PutAppendArgs{key, value, op, ck.clerkId, ck.commandCount}
-	reply := &PutAppendReply{}
-	var serverId int
-	if ck.leaderId != Null {
-		serverId = ck.leaderId
-	} else {
-		serverId = int(nrand()) % len(ck.servers)
-	}
+	ck.commandIndex++
+	clerkId := ck.clerkId
+	commandIndex := ck.commandIndex
+	count := 1
 	for true {
-		CPrintf("Clerk %v call KVServer %v's PutAppend {args %v, reply %v}", ck.clerkId, serverId, args, reply)
-		if ck.servers[serverId].Call("KVServer.PutAppend", args, reply) {
-			// todo 处理 put append 的返回结果
+		serverId := ck.leaderId
+		ch := make(chan *PutAppendReply)
+		go ck.sendPut(key, value, op, clerkId, commandIndex, serverId, count, ch)
+
+		select {
+		case reply := <-ch:
 			switch reply.Err {
-			case ErrWrongLeader:
-				if reply.LeaderId == Null || serverId == reply.LeaderId {
-					serverId = (serverId + 1) % len(ck.servers)
-				} else {
-					serverId = reply.LeaderId
-				}
+			case ErrWrongLeader, Passed:
+				ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 			case OK:
-				ck.leaderId = serverId
-				return
-			case ErrNoTypeOpFound:
-				CPrintf("Clerk %v: KVServer %v can't deal this type Option 「args %v, reply %v」", ck.clerkId, serverId, args, reply)
+				ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
 				return
 			}
+
+		case <-time.After(time.Second):
+			CPrintf("Clerk %v's %v times %v.Get is timeout", clerkId, count, serverId)
+			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
 		}
-		time.Sleep(10 * time.Millisecond)
+		count++
+		time.Sleep(100 * time.Millisecond)
 	}
-	CPrintf("Put end")
+}
+func (ck *Clerk) sendPut(key, value, op string, clerkId, commandIndex, serverId, count int, ch chan *PutAppendReply) {
+	args := &PutAppendArgs{key, value, op, clerkId, commandIndex, count}
+	reply := &PutAppendReply{Times: count}
+	CPrintf("Clerk %v %v times call KVServer %v's PutAppend {args %+v, reply %v}", ck.clerkId, count, serverId, args, reply)
+	if ck.servers[serverId].Call("KVServer.PutAppend", args, reply) {
+		//  处理 put append 的返回结果
+		CPrintf("Clerk %v receive KVServer %v's  %v times PutAppend reply {args %+v ,reply %v}", ck.clerkId, serverId, count, args, reply)
+		//if ck.lastReplyIndex >= commandIndex {
+		//	CPrintf("Clerk %v receive a passed PutAppend reply {args %+v, reply %v}", ck.clerkId, args, reply)
+		//	return true, Null
+		//}
+
+	} else {
+		reply.Err = ErrWrongLeader
+		CPrintf("Clerk %v lost KVServer %v's %v times PutAppend reply {commandIndex %v}", clerkId, serverId, count, commandIndex)
+	}
+	ch <- reply
 }
 
 func (ck *Clerk) Put(key string, value string) {

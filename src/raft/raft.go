@@ -82,6 +82,8 @@ type Raft struct {
 	// leader election
 	electionTimer *time.Timer // 选举超时 Timer
 	beginElection int32
+
+	currentLeader int
 }
 
 // return currentTerm and whether this server
@@ -289,6 +291,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	DPrintf("%v reset electionTimer for current leader's AppendEntries", rf, rf.me)
 	rf.electionTimer.Reset(getRandTime()) // 重置选举时间
+	rf.currentLeader = args.LeaderId
 
 	reply.Success = true
 	// 不区分是否是心跳
@@ -352,6 +355,7 @@ func (rf *Raft) convertToFollower(term int) {
 	rf.votedFor = Null
 	rf.persist()
 	rf.leader = nil
+	rf.currentLeader = Null
 	rf.beginElectionLoop()
 }
 
@@ -360,12 +364,15 @@ func (rf *Raft) convertToCandidate() {
 	rf.state = Candidate
 	rf.votedFor = rf.me
 	rf.persist()
+	rf.currentLeader = Null
 	rf.leader = nil
 }
 func (rf *Raft) convertToLeader() {
 	rf.state = Leader
 	rf.persist()
 	rf.leader = &LeaderState{}
+	rf.currentLeader = rf.me
+
 	peerSize := len(rf.peers)
 	lastLogIndex := len(rf.logs)
 	nextIndex := make([]int, peerSize)
@@ -491,6 +498,7 @@ func (rf *Raft) init(peers []*labrpc.ClientEnd, me int,
 	rf.lastApplied = 0
 	rf.beginElection = 0
 	rf.applyCh = applyCh
+	rf.currentLeader = Null
 	rf.electionTimer = time.NewTimer(getRandTime())
 }
 
@@ -710,8 +718,9 @@ func (rf *Raft) commitLoop() {
 			DPrintf("%v commit log to server in current term %v {command %v, index %v, term %v}", rf, rf.me, rf.currentTerm, entry.Command, nextApply, entry.Term)
 			rf.mu.Lock()
 			term := rf.currentTerm
+			leader := rf.currentLeader
 			rf.mu.Unlock()
-			rf.applyCh <- ApplyMsg{true, entry.Command, nextApply, -1, term}
+			rf.applyCh <- ApplyMsg{true, entry.Command, nextApply, leader, term}
 			nextApply++
 		}
 		rf.mu.Lock()

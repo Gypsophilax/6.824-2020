@@ -5,15 +5,17 @@ type GetArgs struct {
 	// You'll have to add definitions here.
 	ClerkId      int //ClerkId
 	CommandIndex int
+	Times        int
 }
 
 type GetReply struct {
 	Err      Err
 	Value    string
 	LeaderId int
+	Times    int
 }
 
 func (kv *KVServer) getOp(args *GetArgs) *Option {
-	command := Op{args.Key, GetOp, ""}
-	return &Option{&command, make(chan *Option, 1), OK, args.CommandIndex, args.ClerkId, 0, nil}
+	command := Command{args.Key, GetOp, "", args.CommandIndex, args.ClerkId}
+	return &Option{&command, make(chan *Option, 1), OK, 0, nil}
 }

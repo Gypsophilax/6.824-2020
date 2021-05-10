@@ -21,23 +21,23 @@ const (
 type Err string
 
 type Option struct {
-	command    *Op
-	notify     chan *Option
-	err        Err
-	clerkIndex int // clerk command's index
-	clerkId    int
-	raftIndex  int
-	element    *list.Element
+	command   *Command
+	notify    chan *Option
+	err       Err
+	raftIndex int
+	element   *list.Element
 }
-type Op struct {
-	Key   string
-	Op    string // "Put" or "Append" or "Get"
-	Value string
+type Command struct {
+	Key        string
+	Type       string // "Put" or "Append" or "Get"
+	Value      string
+	ClerkIndex int // clerk command's index
+	ClerkId    int
 }
 
-func (op *Option) sameCommand(command *Op) bool {
-	if command.Op == op.command.Op {
-		switch command.Op {
+func (op *Option) sameCommand(command *Command) bool {
+	if command.Type == op.command.Type {
+		switch command.Type {
 		case GetOp:
 			if command.Key == op.command.Key {
 				return true
@@ -52,8 +52,9 @@ func (op *Option) sameCommand(command *Op) bool {
 	return false
 }
 
-type ICommand interface {
-	buildOp() *Option
+type Msg struct {
+	ok       bool
+	leaderId int
 }
 
 func max(a, b int) int {
