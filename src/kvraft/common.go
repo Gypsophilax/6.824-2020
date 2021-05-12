@@ -5,11 +5,9 @@ import (
 )
 
 const (
-	OK               = "OK"
-	ErrNoKey         = "ErrNoKey"
-	ErrWrongLeader   = "ErrWrongLeader"
-	ErrNoTypeOpFound = "ErrNoTypeOpFound"
-	Passed           = "Passed"
+	OK             = "OK"
+	ErrNoKey       = "ErrNoKey"
+	ErrWrongLeader = "ErrWrongLeader"
 
 	PutOp    = "Put"
 	AppendOp = "Append"
@@ -33,23 +31,6 @@ type Command struct {
 	Value      string
 	ClerkIndex int // clerk command's index
 	ClerkId    int
-}
-
-func (op *Option) sameCommand(command *Command) bool {
-	if command.Type == op.command.Type {
-		switch command.Type {
-		case GetOp:
-			if command.Key == op.command.Key {
-				return true
-			}
-		case PutOp, AppendOp:
-			if command.Key == op.command.Key && command.Value == command.Value {
-				return true
-			}
-
-		}
-	}
-	return false
 }
 
 type Msg struct {

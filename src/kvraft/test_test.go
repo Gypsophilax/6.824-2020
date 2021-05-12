@@ -646,6 +646,7 @@ func TestSnapshotRPC3B(t *testing.T) {
 	if sz > 8*maxraftstate {
 		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
 	}
+	fmt.Println("1 is done")
 
 	// now make group that requires participation of
 	// lagging server, so that it has to catch up.
@@ -660,6 +661,8 @@ func TestSnapshotRPC3B(t *testing.T) {
 		check(cfg, t, ck1, "49", "49")
 	}
 
+	fmt.Println("2 is done")
+
 	// now everybody
 	cfg.partition([]int{0, 1, 2}, []int{})
 
@@ -667,6 +670,8 @@ func TestSnapshotRPC3B(t *testing.T) {
 	check(cfg, t, ck, "c", "C")
 	check(cfg, t, ck, "e", "E")
 	check(cfg, t, ck, "1", "1")
+
+	fmt.Println("3 is done")
 
 	cfg.end()
 }

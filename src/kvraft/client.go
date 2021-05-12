@@ -66,20 +66,14 @@ func (ck *Clerk) Get(key string) string {
 	for true {
 		serverId := ck.leaderId
 		ch := make(chan *GetReply)
-		go ck.sendGet(key, clerkId, commandIndex, serverId, count, ch)
-		var reply *GetReply
-		select {
-		case reply = <-ch:
-			switch reply.Err {
-			case ErrWrongLeader, Passed:
-				ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
-			case OK, ErrNoKey:
-				ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
-				return reply.Value
-			}
-		case <-time.After(time.Second):
-			CPrintf("Clerk %v's %v times %v.Get is timeout", clerkId, count, serverId)
+		reply := ck.sendGet(key, clerkId, commandIndex, serverId, count, ch)
+		switch reply.Err {
+		case ErrWrongLeader:
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
+		case OK, ErrNoKey:
+			ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
+			ck.leaderId = serverId
+			return reply.Value
 		}
 
 		count++
@@ -88,7 +82,7 @@ func (ck *Clerk) Get(key string) string {
 	}
 	return ""
 }
-func (ck *Clerk) sendGet(key string, clerkId, commandIndex, serverId, count int, ch chan *GetReply) {
+func (ck *Clerk) sendGet(key string, clerkId, commandIndex, serverId, count int, ch chan *GetReply) *GetReply {
 	args := &GetArgs{key, clerkId, commandIndex, count}
 	reply := &GetReply{Times: count}
 	CPrintf("Clerk %v %v times call KVServer %v's Get {args %+v, reply %v}", ck.clerkId, count, serverId, args, reply)
@@ -104,7 +98,7 @@ func (ck *Clerk) sendGet(key string, clerkId, commandIndex, serverId, count int,
 		reply.Err = ErrWrongLeader
 		CPrintf("Clerk %v lost KVServer %v's %v times Get reply {commandIndex %v}", clerkId, serverId, count, commandIndex)
 	}
-	ch <- reply
+	return reply
 }
 
 //
@@ -128,28 +122,21 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	count := 1
 	for true {
 		serverId := ck.leaderId
-		ch := make(chan *PutAppendReply)
-		go ck.sendPut(key, value, op, clerkId, commandIndex, serverId, count, ch)
+		reply := ck.sendPut(key, value, op, clerkId, commandIndex, serverId, count)
 
-		select {
-		case reply := <-ch:
-			switch reply.Err {
-			case ErrWrongLeader, Passed:
-				ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
-			case OK:
-				ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
-				return
-			}
-
-		case <-time.After(time.Second):
-			CPrintf("Clerk %v's %v times %v.Get is timeout", clerkId, count, serverId)
+		switch reply.Err {
+		case ErrWrongLeader:
 			ck.leaderId = (ck.leaderId + 1) % len(ck.servers)
+		case OK:
+			ck.lastReplyIndex = max(ck.lastReplyIndex, commandIndex)
+			ck.leaderId = serverId
+			return
 		}
 		count++
 		time.Sleep(100 * time.Millisecond)
 	}
 }
-func (ck *Clerk) sendPut(key, value, op string, clerkId, commandIndex, serverId, count int, ch chan *PutAppendReply) {
+func (ck *Clerk) sendPut(key, value, op string, clerkId, commandIndex, serverId, count int) *PutAppendReply {
 	args := &PutAppendArgs{key, value, op, clerkId, commandIndex, count}
 	reply := &PutAppendReply{Times: count}
 	CPrintf("Clerk %v %v times call KVServer %v's PutAppend {args %+v, reply %v}", ck.clerkId, count, serverId, args, reply)
@@ -165,7 +152,7 @@ func (ck *Clerk) sendPut(key, value, op string, clerkId, commandIndex, serverId,
 		reply.Err = ErrWrongLeader
 		CPrintf("Clerk %v lost KVServer %v's %v times PutAppend reply {commandIndex %v}", clerkId, serverId, count, commandIndex)
 	}
-	ch <- reply
+	return reply
 }
 
 func (ck *Clerk) Put(key string, value string) {
